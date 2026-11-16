@@ -1,0 +1,94 @@
+{
+  "conda": "/home/tantingting/miniconda3/bin/conda",
+  "output_root": "/path/to/scmut_output",
+  "environments": {
+    "monopogen": "/home/tantingting/miniconda3/envs/Monopogen",
+    "plotting": "/home/tantingting/miniconda3/envs/R43",
+    "scomatic": "/home/tantingting/miniconda3/envs/SComatic",
+    "freebayes": "/home/tantingting/miniconda3/envs/freebayes",
+    "monovar": "/home/tantingting/miniconda3/envs/monovar",
+    "strelka2": "/home/tantingting/miniconda3/envs/py2",
+    "scallele": "/home/tantingting/miniconda3/envs/scallele",
+    "scsnv": "/home/tantingting/miniconda3/envs/scsnv",
+    "scmut": "/home/tantingting/miniconda3/envs/scmut",
+    "samtools": "/home/tantingting/miniconda3/envs/scmut",
+    "gatk": "/home/tantingting/miniconda3/envs/scmut",
+    "varscan2": "/home/tantingting/miniconda3/envs/scmut",
+    "cellsnp": "/home/tantingting/miniconda3/envs/scmut",
+    "rtg": "/home/tantingting/miniconda3/envs/scmut",
+    "simulation": "/home/tantingting/miniconda3/envs/scmut"
+  },
+  "resources": {
+    "reference": "/home/tantingting/scmut/ref/bwa_ref/genome.fa",
+    "rtg_sdf": "/home/tantingting/scmut/ref/bwa_ref/genome.sdf",
+    "chr_map": "REPLACE_CHROMOSOME_RENAME_FILE",
+    "freebayes_regions": "REPLACE_FREEBAYES_REGIONS",
+    "varscan_jar": "REPLACE_VARSCAN_JAR",
+    "strelka": "REPLACE_CONFIGURE_STRELKA_GERMLINE",
+    "monovar": "REPLACE_MONOVAR_EXECUTABLE",
+    "software_root": "/home/tantingting/scmut",
+    "monopogen": "REPLACE_MONOPOGEN_PY",
+    "monopogen_apps": "REPLACE_MONOPOGEN_APPS",
+    "panel": "REPLACE_REFERENCE_PANEL",
+    "scomatic": "REPLACE_SCOMATIC_INSTALL"
+  },
+  "samples": {
+    "P4_cSCC": {
+      "pooled_bam": "/path/to/P4_cSCC_map.bam",
+      "fastq_dir": "/path/to/P4_cSCC/fastq",
+      "barcodes": "/path/to/P4_cSCC/barcodes.tsv",
+      "reads_csv": "/path/to/P4_cSCC/reads.csv",
+      "barcode_reads": "/path/to/P4_cSCC/barcode_reads.tsv",
+      "monopogen_regions": "/path/to/P4_cSCC/regions.lst",
+      "cell_annotations": "/path/to/P4_cSCC/cell_annotations.tsv",
+      "strelka_vcf_sample": "S2",
+      "truth_vcf": "/path/to/P4_cSCC_WES_PASS.vcf.gz",
+      "callable_bed": "/path/to/P4_cSCC_WES30_scRNA10_shared.bed",
+      "cell_types": [
+        {
+          "id": "Epithelial",
+          "bam": "/path/to/P4_cSCC.Epithelial.bam",
+          "strelka_vcf_sample": "S1",
+          "monovar_vcf_sample": "REPLACE_ORIGINAL_MONOVAR_VCF_SAMPLE"
+        }
+      ],
+      "cells": [
+        {
+          "id": "AAAC_example",
+          "bam": "/path/to/P4_cSCC_map_AAAC_example.bam"
+        }
+      ],
+      "cellsnp_barcode_bam": "/path/to/P4_cSCC_cr.bam",
+      "monopogen_bamlist": "/path/to/P4_cSCC/bam.lst",
+      "scomatic_step2_filename": "P4_cSCC.calling.step2.tsv",
+      "strelka_joint_bams_pooled": [
+        "REPLACE_ORIGINAL_JOINT_BAM_LIST_IN_ORIGINAL_ORDER"
+      ],
+      "strelka_joint_bams_celltype": [
+        "REPLACE_ORIGINAL_JOINT_BAM_LIST_IN_ORIGINAL_ORDER"
+      ],
+      "monovar_joint_bams": [
+        "REPLACE_ORIGINAL_JOINT_BAM_LIST_IN_ORIGINAL_ORDER"
+      ]
+    },
+    "BC_example": {
+      "cohort": "2_BRCA",
+      "wes_id": "SRR_WES",
+      "truth_vcf": "/path/to/BC_example_WES_PASS.vcf.gz",
+      "cells": [
+        {
+          "id": "SRR_cell1",
+          "bam": "/path/to/SRR_cell1.bam",
+          "callable_bed": "/path/to/SRR_cell1_WES30_scRNA1_shared.bed"
+        }
+      ]
+    }
+  },
+  "simulation": {
+    "region_dir": "REPLACE_NATIVE_SIMULATION_REGION_DIR",
+    "dp_cache_root": "REPLACE_NATIVE_DP_CACHE_ROOT",
+    "original_vcf_manifest": "REPLACE_NATIVE_POOLED_VCF_MANIFEST",
+    "smartseq_vaf_regions": "REPLACE_ORIGINAL_SMARTSEQ_VAF_REGION_DIR",
+    "smartseq_dp_regions": "REPLACE_ORIGINAL_SMARTSEQ_DP_REGION_DIR"
+  }
+}

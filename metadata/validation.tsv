@@ -1,0 +1,10 @@
+check	result	scope
+Main script syntax	PASS	4 standalone Python scripts
+Workflow plans	PASS	152 shell stages; bash syntax and embedded Python compilation
+Simulation preservation	PASS	Embedded Smart-seq2 Python programs match original parsed syntax trees
+Runner control flow	PASS	Mock stage execution, failure handling, missing-input preflight and write-free dry run
+Original plotting code	PASS	Native R expressions retained; preparation bindings separately labeled
+Analysis execution	NOT RUN	No caller, simulation or plotting analysis executed
+Rendering	PASS	Four chapters with inline code and supplied figure assets
+Real dataset run	NOT RUN	Requires configured Linux inputs and installed caller environments
+SComatic evaluation	SOURCE GAP	Native TSV-to-VCF conversion is absent; calling/filtering is included; automatic RTG requires per-unit VCF outputs

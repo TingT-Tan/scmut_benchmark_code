@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="" xml:lang="">
+<head>
+
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <title>Chapter 5 Caller consensus | Scmut</title>
+  <meta name="description" content="Chapter 5 Caller consensus | Scmut" />
+  <meta name="generator" content="bookdown 0.39 and GitBook 2.6.7" />
+
+  <meta property="og:title" content="Chapter 5 Caller consensus | Scmut" />
+  <meta property="og:type" content="book" />
+  
+  
+  <meta name="github-repo" content="rstudio/bookdown-demo" />
+
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="Chapter 5 Caller consensus | Scmut" />
+  
+  
+  
+
+
+
+<meta name="date" content="2026-11-16" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+  
+  
+<link rel="prev" href="simulations.html"/>
+
+<script src="libs/jquery-3.6.0/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fuse.js@6.4.6/dist/fuse.min.js"></script>
+<link href="libs/gitbook-2.6.7/css/style.css" rel="stylesheet" />
+<link href="libs/gitbook-2.6.7/css/plugin-table.css" rel="stylesheet" />
+<link href="libs/gitbook-2.6.7/css/plugin-bookdown.css" rel="stylesheet" />
+<link href="libs/gitbook-2.6.7/css/plugin-highlight.css" rel="stylesheet" />
+<link href="libs/gitbook-2.6.7/css/plugin-search.css" rel="stylesheet" />
+<link href="libs/gitbook-2.6.7/css/plugin-fontsettings.css" rel="stylesheet" />
+<link href="libs/gitbook-2.6.7/css/plugin-clipboard.css" rel="stylesheet" />
+
+
+
+
+
+
+
+
+<link href="libs/anchor-sections-1.1.0/anchor-sections.css" rel="stylesheet" />
+<link href="libs/anchor-sections-1.1.0/anchor-sections-hash.css" rel="stylesheet" />
+<script src="libs/anchor-sections-1.1.0/anchor-sections.js"></script>
+
+
+<style type="text/css">
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+    color: #aaaaaa;
+  }
+pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+code span.at { color: #7d9029; } /* Attribute */
+code span.bn { color: #40a070; } /* BaseN */
+code span.bu { color: #008000; } /* BuiltIn */
+code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+code span.ch { color: #4070a0; } /* Char */
+code span.cn { color: #880000; } /* Constant */
+code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+code span.dt { color: #902000; } /* DataType */
+code span.dv { color: #40a070; } /* DecVal */
+code span.er { color: #ff0000; font-weight: bold; } /* Error */
+code span.ex { } /* Extension */
+code span.fl { color: #40a070; } /* Float */
+code span.fu { color: #06287e; } /* Function */
+code span.im { color: #008000; font-weight: bold; } /* Import */
+code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+code span.op { color: #666666; } /* Operator */
+code span.ot { color: #007020; } /* Other */
+code span.pp { color: #bc7a00; } /* Preprocessor */
+code span.sc { color: #4070a0; } /* SpecialChar */
+code span.ss { color: #bb6688; } /* SpecialString */
+code span.st { color: #4070a0; } /* String */
+code span.va { color: #19177c; } /* Variable */
+code span.vs { color: #4070a0; } /* VerbatimString */
+code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+</style>
+
+<style type="text/css">
+  
+  div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+</style>
+
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+
+<body>
+
+
+
+  <div class="book without-animation with-summary font-size-2 font-family-1" data-basepath=".">
+
+    <div class="book-summary">
+      <nav role="navigation">
+
+<ul class="summary">
+<li class="chapter" data-level="1" data-path="index.html"><a href="index.html"><i class="fa fa-check"></i><b>1</b> Overview</a>
+<ul>
+<li class="chapter" data-level="1.1" data-path="index.html"><a href="index.html#software-and-environments"><i class="fa fa-check"></i><b>1.1</b> Software and Environments</a></li>
+<li class="chapter" data-level="1.2" data-path="index.html"><a href="index.html#datasets"><i class="fa fa-check"></i><b>1.2</b> Datasets</a></li>
+<li class="chapter" data-level="1.3" data-path="index.html"><a href="index.html#reference-resources"><i class="fa fa-check"></i><b>1.3</b> Reference resources</a></li>
+</ul></li>
+<li class="chapter" data-level="2" data-path="variant-calling.html"><a href="variant-calling.html"><i class="fa fa-check"></i><b>2</b> Variant Calling</a>
+<ul>
+<li class="chapter" data-level="2.1" data-path="variant-calling.html"><a href="variant-calling.html#gatk"><i class="fa fa-check"></i><b>2.1</b> GATK</a></li>
+<li class="chapter" data-level="2.2" data-path="variant-calling.html"><a href="variant-calling.html#monopogen"><i class="fa fa-check"></i><b>2.2</b> Monopogen</a></li>
+<li class="chapter" data-level="2.3" data-path="variant-calling.html"><a href="variant-calling.html#freebayes"><i class="fa fa-check"></i><b>2.3</b> Freebayes</a></li>
+<li class="chapter" data-level="2.4" data-path="variant-calling.html"><a href="variant-calling.html#strelka2"><i class="fa fa-check"></i><b>2.4</b> Strelka2</a></li>
+<li class="chapter" data-level="2.5" data-path="variant-calling.html"><a href="variant-calling.html#scsnv"><i class="fa fa-check"></i><b>2.5</b> scSNV</a></li>
+<li class="chapter" data-level="2.6" data-path="variant-calling.html"><a href="variant-calling.html#cellsnp-lite"><i class="fa fa-check"></i><b>2.6</b> cellsnp-lite</a></li>
+<li class="chapter" data-level="2.7" data-path="variant-calling.html"><a href="variant-calling.html#samtools"><i class="fa fa-check"></i><b>2.7</b> SAMtools</a></li>
+<li class="chapter" data-level="2.8" data-path="variant-calling.html"><a href="variant-calling.html#varscan2"><i class="fa fa-check"></i><b>2.8</b> Varscan2</a></li>
+<li class="chapter" data-level="2.9" data-path="variant-calling.html"><a href="variant-calling.html#scomatic"><i class="fa fa-check"></i><b>2.9</b> SComatic</a></li>
+<li class="chapter" data-level="2.10" data-path="variant-calling.html"><a href="variant-calling.html#monovar"><i class="fa fa-check"></i><b>2.10</b> Monovar</a></li>
+<li class="chapter" data-level="2.11" data-path="variant-calling.html"><a href="variant-calling.html#scallele"><i class="fa fa-check"></i><b>2.11</b> scAllele</a></li>
+</ul></li>
+<li class="chapter" data-level="3" data-path="benchmark-evaluation.html"><a href="benchmark-evaluation.html"><i class="fa fa-check"></i><b>3</b> Benchmark Evaluation</a>
+<ul>
+<li class="chapter" data-level="3.1" data-path="benchmark-evaluation.html"><a href="benchmark-evaluation.html#wes-reference-construction"><i class="fa fa-check"></i><b>3.1</b> WES reference construction</a></li>
+<li class="chapter" data-level="3.2" data-path="benchmark-evaluation.html"><a href="benchmark-evaluation.html#callable-regions"><i class="fa fa-check"></i><b>3.2</b> Callable regions</a></li>
+<li class="chapter" data-level="3.3" data-path="benchmark-evaluation.html"><a href="benchmark-evaluation.html#normalize-and-compare-with-rtg"><i class="fa fa-check"></i><b>3.3</b> Normalize and compare with RTG</a></li>
+<li class="chapter" data-level="3.4" data-path="benchmark-evaluation.html"><a href="benchmark-evaluation.html#core-result-figures"><i class="fa fa-check"></i><b>3.4</b> Core result figures</a></li>
+</ul></li>
+<li class="chapter" data-level="4" data-path="simulations.html"><a href="simulations.html"><i class="fa fa-check"></i><b>4</b> Read-level simulations</a>
+<ul>
+<li class="chapter" data-level="4.1" data-path="simulations.html"><a href="simulations.html#x-vaf-simulation"><i class="fa fa-check"></i><b>4.1</b> 10x VAF simulation</a></li>
+<li class="chapter" data-level="4.2" data-path="simulations.html"><a href="simulations.html#smart-seq2-dp-simulation"><i class="fa fa-check"></i><b>4.2</b> Smart-seq2 DP simulation</a></li>
+</ul></li>
+<li class="chapter" data-level="5" data-path="consensus.html"><a href="consensus.html"><i class="fa fa-check"></i><b>5</b> Caller consensus</a></li>
+</ul>
+
+      </nav>
+    </div>
+
+    <div class="book-body">
+      <div class="body-inner">
+        <div class="book-header" role="navigation">
+          <h1>
+            <i class="fa fa-circle-o-notch fa-spin"></i><a href="./">Scmut</a>
+          </h1>
+        </div>
+
+        <div class="page-wrapper" tabindex="-1" role="main">
+          <div class="page-inner">
+
+            <section class="normal" id="section-">
+<div id="consensus" class="section level1 hasAnchor" number="5">
+<h1><span class="header-section-number">Chapter 5</span> Caller consensus<a href="consensus.html#consensus" class="anchor-section" aria-label="Anchor link to header"></a></h1>
+<p>Caller consensus analysis was performed to evaluate whether combining variant calls from multiple tools improves variant calling performance. For each sample, variants were represented by normalized CHROM:POS:REF:ALT keys, and the number of supporting callers was counted. Combinations of two, three, and four callers were evaluated using different support thresholds, including the union (≥1 caller), intermediate consensus (≥2 or ≥3 callers), and intersection (supported by all callers). Each consensus call set was compared against the matched WES reference using RTG vcfeval within predefined callable regions to assess precision, recall, and F1-score.</p>
+<p>The consensus analysis followed a similar workflow for both 10x Genomics and Smart-seq2 datasets. <strong>Here, the 10x Genomics analysis is presented as a representative example.</strong></p>
+<details>
+<summary>
+10x consensus RTG
+</summary>
+<div class="sourceCode" id="cb77"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb77-1"><a href="consensus.html#cb77-1" tabindex="-1"></a><span class="va">combos</span><span class="op">=</span><span class="va">(</span></span>
+<span id="cb77-2"><a href="consensus.html#cb77-2" tabindex="-1"></a><span class="st">&quot;Monopogen,Strelka2&quot;</span></span>
+<span id="cb77-3"><a href="consensus.html#cb77-3" tabindex="-1"></a><span class="st">&quot;Monopogen,Freebayes&quot;</span></span>
+<span id="cb77-4"><a href="consensus.html#cb77-4" tabindex="-1"></a><span class="st">&quot;Monopogen,GATK&quot;</span></span>
+<span id="cb77-5"><a href="consensus.html#cb77-5" tabindex="-1"></a><span class="st">&quot;Monopogen,scSNV&quot;</span></span>
+<span id="cb77-6"><a href="consensus.html#cb77-6" tabindex="-1"></a><span class="st">&quot;Monopogen,Varscan2&quot;</span></span>
+<span id="cb77-7"><a href="consensus.html#cb77-7" tabindex="-1"></a><span class="st">&quot;Strelka2,Freebayes&quot;</span></span>
+<span id="cb77-8"><a href="consensus.html#cb77-8" tabindex="-1"></a><span class="st">&quot;Strelka2,scSNV&quot;</span></span>
+<span id="cb77-9"><a href="consensus.html#cb77-9" tabindex="-1"></a><span class="st">&quot;Strelka2,Varscan2&quot;</span></span>
+<span id="cb77-10"><a href="consensus.html#cb77-10" tabindex="-1"></a><span class="st">&quot;Monopogen,Strelka2,Freebayes&quot;</span></span>
+<span id="cb77-11"><a href="consensus.html#cb77-11" tabindex="-1"></a><span class="st">&quot;Monopogen,Strelka2,GATK&quot;</span></span>
+<span id="cb77-12"><a href="consensus.html#cb77-12" tabindex="-1"></a><span class="st">&quot;Monopogen,Strelka2,scSNV&quot;</span></span>
+<span id="cb77-13"><a href="consensus.html#cb77-13" tabindex="-1"></a><span class="st">&quot;Monopogen,Strelka2,Varscan2&quot;</span></span>
+<span id="cb77-14"><a href="consensus.html#cb77-14" tabindex="-1"></a><span class="st">&quot;Monopogen,Freebayes,GATK&quot;</span></span>
+<span id="cb77-15"><a href="consensus.html#cb77-15" tabindex="-1"></a><span class="st">&quot;Monopogen,Freebayes,scSNV&quot;</span></span>
+<span id="cb77-16"><a href="consensus.html#cb77-16" tabindex="-1"></a><span class="st">&quot;Monopogen,Freebayes,Varscan2&quot;</span></span>
+<span id="cb77-17"><a href="consensus.html#cb77-17" tabindex="-1"></a><span class="st">&quot;Strelka2,Freebayes,GATK&quot;</span></span>
+<span id="cb77-18"><a href="consensus.html#cb77-18" tabindex="-1"></a><span class="st">&quot;Monopogen,Strelka2,Freebayes,GATK&quot;</span></span>
+<span id="cb77-19"><a href="consensus.html#cb77-19" tabindex="-1"></a><span class="st">&quot;Monopogen,Strelka2,Freebayes,scSNV&quot;</span></span>
+<span id="cb77-20"><a href="consensus.html#cb77-20" tabindex="-1"></a><span class="st">&quot;Monopogen,Strelka2,Freebayes,Varscan2&quot;</span></span>
+<span id="cb77-21"><a href="consensus.html#cb77-21" tabindex="-1"></a><span class="st">&quot;Strelka2,GATK&quot;</span></span>
+<span id="cb77-22"><a href="consensus.html#cb77-22" tabindex="-1"></a><span class="st">&quot;Freebayes,GATK&quot;</span></span>
+<span id="cb77-23"><a href="consensus.html#cb77-23" tabindex="-1"></a><span class="st">&quot;Freebayes,scSNV&quot;</span></span>
+<span id="cb77-24"><a href="consensus.html#cb77-24" tabindex="-1"></a><span class="st">&quot;Freebayes,Varscan2&quot;</span></span>
+<span id="cb77-25"><a href="consensus.html#cb77-25" tabindex="-1"></a><span class="st">&quot;Strelka2,Freebayes,scSNV&quot;</span></span>
+<span id="cb77-26"><a href="consensus.html#cb77-26" tabindex="-1"></a><span class="st">&quot;Strelka2,Freebayes,Varscan2&quot;</span></span>
+<span id="cb77-27"><a href="consensus.html#cb77-27" tabindex="-1"></a><span class="st">&quot;Monopogen,Strelka2,GATK,scSNV&quot;</span></span>
+<span id="cb77-28"><a href="consensus.html#cb77-28" tabindex="-1"></a><span class="st">&quot;Monopogen,Strelka2,GATK,Varscan2&quot;</span></span>
+<span id="cb77-29"><a href="consensus.html#cb77-29" tabindex="-1"></a><span class="st">&quot;Monopogen,Strelka2,scSNV,Varscan2&quot;</span></span>
+<span id="cb77-30"><a href="consensus.html#cb77-30" tabindex="-1"></a><span class="st">&quot;Monopogen,Freebayes,GATK,scSNV&quot;</span></span>
+<span id="cb77-31"><a href="consensus.html#cb77-31" tabindex="-1"></a><span class="st">&quot;Monopogen,Freebayes,GATK,Varscan2&quot;</span></span>
+<span id="cb77-32"><a href="consensus.html#cb77-32" tabindex="-1"></a><span class="st">&quot;Monopogen,Freebayes,scSNV,Varscan2&quot;</span></span>
+<span id="cb77-33"><a href="consensus.html#cb77-33" tabindex="-1"></a><span class="st">&quot;Strelka2,Freebayes,GATK,scSNV&quot;</span></span>
+<span id="cb77-34"><a href="consensus.html#cb77-34" tabindex="-1"></a><span class="st">&quot;Strelka2,Freebayes,GATK,Varscan2&quot;</span></span>
+<span id="cb77-35"><a href="consensus.html#cb77-35" tabindex="-1"></a><span class="st">&quot;Strelka2,Freebayes,scSNV,Varscan2&quot;</span></span>
+<span id="cb77-36"><a href="consensus.html#cb77-36" tabindex="-1"></a><span class="va">)</span></span>
+<span id="cb77-37"><a href="consensus.html#cb77-37" tabindex="-1"></a></span>
+<span id="cb77-38"><a href="consensus.html#cb77-38" tabindex="-1"></a><span class="va">POOL_BASE</span><span class="op">=</span><span class="st">&quot;/mnt/storage/tantingting/scmut/isec/pool_sites&quot;</span></span>
+<span id="cb77-39"><a href="consensus.html#cb77-39" tabindex="-1"></a><span class="va">OUT_BASE</span><span class="op">=</span><span class="st">&quot;/mnt/storage/tantingting/scmut/isec/support_consensus_D1D2&quot;</span></span>
+<span id="cb77-40"><a href="consensus.html#cb77-40" tabindex="-1"></a><span class="va">REF_SDF</span><span class="op">=</span><span class="st">&quot;/home/tantingting/scmut/ref/bwa_ref/genome.sdf&quot;</span></span>
+<span id="cb77-41"><a href="consensus.html#cb77-41" tabindex="-1"></a><span class="fu">mkdir</span> <span class="at">-p</span> <span class="st">&quot;</span><span class="va">$OUT_BASE</span><span class="st">&quot;</span></span>
+<span id="cb77-42"><a href="consensus.html#cb77-42" tabindex="-1"></a></span>
+<span id="cb77-43"><a href="consensus.html#cb77-43" tabindex="-1"></a><span class="va">samples</span><span class="op">=</span><span class="va">(</span><span class="st">&quot;P4_cSCC&quot;</span> <span class="st">&quot;P5_cSCC&quot;</span> <span class="st">&quot;P6_cSCC&quot;</span> <span class="st">&quot;P7_cSCC&quot;</span> <span class="st">&quot;P9_cSCC&quot;</span> <span class="st">&quot;P10_cSCC&quot;</span> <span class="st">&quot;Acral1&quot;</span> <span class="st">&quot;Acral2&quot;</span> <span class="st">&quot;Acral3pre&quot;</span> <span class="st">&quot;Acral3post&quot;</span> <span class="st">&quot;Acral4&quot;</span> <span class="st">&quot;Cutaneous1&quot;</span> <span class="st">&quot;Cutaneous1Lym&quot;</span> <span class="st">&quot;Cutaneous2&quot;</span><span class="va">)</span></span>
+<span id="cb77-44"><a href="consensus.html#cb77-44" tabindex="-1"></a></span>
+<span id="cb77-45"><a href="consensus.html#cb77-45" tabindex="-1"></a><span class="fu">get_truth_vcf()</span> <span class="kw">{</span></span>
+<span id="cb77-46"><a href="consensus.html#cb77-46" tabindex="-1"></a>    <span class="bu">local</span> <span class="va">sample</span><span class="op">=</span><span class="st">&quot;</span><span class="va">$1</span><span class="st">&quot;</span></span>
+<span id="cb77-47"><a href="consensus.html#cb77-47" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">[[</span> <span class="st">&quot;</span><span class="va">$sample</span><span class="st">&quot;</span> <span class="ot">==</span> P<span class="pp">*</span>_cSCC <span class="kw">]];</span> <span class="cf">then</span></span>
+<span id="cb77-48"><a href="consensus.html#cb77-48" tabindex="-1"></a>        <span class="bu">echo</span> <span class="st">&quot;/mnt/storage/tantingting/scmut/vcf/1_cSCC_WES/hap22/</span><span class="va">${sample}</span><span class="st">_hap_PASS3.vcf.gz&quot;</span></span>
+<span id="cb77-49"><a href="consensus.html#cb77-49" tabindex="-1"></a>    <span class="cf">else</span></span>
+<span id="cb77-50"><a href="consensus.html#cb77-50" tabindex="-1"></a>        <span class="cf">case</span> <span class="st">&quot;</span><span class="va">$sample</span><span class="st">&quot;</span> <span class="kw">in</span></span>
+<span id="cb77-51"><a href="consensus.html#cb77-51" tabindex="-1"></a>            <span class="ss">Acral1</span><span class="kw">)</span> <span class="bu">echo</span> <span class="st">&quot;/mnt/storage/tantingting/scmut/vcf/2_melanoma_WES/hap/filter/SRR21849532_PASS.vcf.gz&quot;</span> <span class="cf">;;</span></span>
+<span id="cb77-52"><a href="consensus.html#cb77-52" tabindex="-1"></a>            <span class="ss">Acral2</span><span class="kw">)</span> <span class="bu">echo</span> <span class="st">&quot;/mnt/storage/tantingting/scmut/vcf/2_melanoma_WES/hap/filter/SRR21849531_PASS.vcf.gz&quot;</span> <span class="cf">;;</span></span>
+<span id="cb77-53"><a href="consensus.html#cb77-53" tabindex="-1"></a>            <span class="ss">Acral3pre</span><span class="kw">)</span> <span class="bu">echo</span> <span class="st">&quot;/mnt/storage/tantingting/scmut/vcf/2_melanoma_WES/hap/filter/SRR21849530_PASS.vcf.gz&quot;</span> <span class="cf">;;</span></span>
+<span id="cb77-54"><a href="consensus.html#cb77-54" tabindex="-1"></a>            <span class="ss">Acral3post</span><span class="kw">)</span> <span class="bu">echo</span> <span class="st">&quot;/mnt/storage/tantingting/scmut/vcf/2_melanoma_WES/hap/filter/SRR21849529_PASS.vcf.gz&quot;</span> <span class="cf">;;</span></span>
+<span id="cb77-55"><a href="consensus.html#cb77-55" tabindex="-1"></a>            <span class="ss">Acral4</span><span class="kw">)</span> <span class="bu">echo</span> <span class="st">&quot;/mnt/storage/tantingting/scmut/vcf/2_melanoma_WES/hap/filter/SRR21849528_PASS.vcf.gz&quot;</span> <span class="cf">;;</span></span>
+<span id="cb77-56"><a href="consensus.html#cb77-56" tabindex="-1"></a>            <span class="ss">Cutaneous1</span><span class="kw">)</span> <span class="bu">echo</span> <span class="st">&quot;/mnt/storage/tantingting/scmut/vcf/2_melanoma_WES/hap/filter/SRR21849527_PASS.vcf.gz&quot;</span> <span class="cf">;;</span></span>
+<span id="cb77-57"><a href="consensus.html#cb77-57" tabindex="-1"></a>            <span class="ss">Cutaneous2</span><span class="kw">)</span> <span class="bu">echo</span> <span class="st">&quot;/mnt/storage/tantingting/scmut/vcf/2_melanoma_WES/hap/filter/SRR21849526_PASS.vcf.gz&quot;</span> <span class="cf">;;</span></span>
+<span id="cb77-58"><a href="consensus.html#cb77-58" tabindex="-1"></a>            <span class="ss">Cutaneous1Lym</span><span class="kw">)</span> <span class="bu">echo</span> <span class="st">&quot;/mnt/storage/tantingting/scmut/vcf/2_melanoma_WES/hap/filter/SRR21849525_PASS.vcf.gz&quot;</span> <span class="cf">;;</span></span>
+<span id="cb77-59"><a href="consensus.html#cb77-59" tabindex="-1"></a>        <span class="cf">esac</span></span>
+<span id="cb77-60"><a href="consensus.html#cb77-60" tabindex="-1"></a>    <span class="cf">fi</span></span>
+<span id="cb77-61"><a href="consensus.html#cb77-61" tabindex="-1"></a><span class="kw">}</span></span>
+<span id="cb77-62"><a href="consensus.html#cb77-62" tabindex="-1"></a></span>
+<span id="cb77-63"><a href="consensus.html#cb77-63" tabindex="-1"></a><span class="fu">get_bed()</span> <span class="kw">{</span></span>
+<span id="cb77-64"><a href="consensus.html#cb77-64" tabindex="-1"></a>    <span class="bu">local</span> <span class="va">sample</span><span class="op">=</span><span class="st">&quot;</span><span class="va">$1</span><span class="st">&quot;</span></span>
+<span id="cb77-65"><a href="consensus.html#cb77-65" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">[[</span> <span class="st">&quot;</span><span class="va">$sample</span><span class="st">&quot;</span> <span class="ot">==</span> P<span class="pp">*</span>_cSCC <span class="kw">]];</span> <span class="cf">then</span></span>
+<span id="cb77-66"><a href="consensus.html#cb77-66" tabindex="-1"></a>        <span class="bu">local</span> <span class="va">p</span><span class="op">=</span><span class="va">${sample</span><span class="op">%%</span>_<span class="pp">*</span><span class="va">}</span></span>
+<span id="cb77-67"><a href="consensus.html#cb77-67" tabindex="-1"></a>        <span class="bu">echo</span> <span class="st">&quot;/mnt/storage/tantingting/scmut/WES_gold/1_cSCC/region/whole/</span><span class="va">${p}</span><span class="st">_WES30_scRNA10_Shared_Genome.bed&quot;</span></span>
+<span id="cb77-68"><a href="consensus.html#cb77-68" tabindex="-1"></a>    <span class="cf">else</span></span>
+<span id="cb77-69"><a href="consensus.html#cb77-69" tabindex="-1"></a>        <span class="bu">echo</span> <span class="st">&quot;/mnt/storage/tantingting/scmut/WES_gold/2_melanoma/region/whole/</span><span class="va">${sample}</span><span class="st">_Shared_Genome.bed&quot;</span></span>
+<span id="cb77-70"><a href="consensus.html#cb77-70" tabindex="-1"></a>    <span class="cf">fi</span></span>
+<span id="cb77-71"><a href="consensus.html#cb77-71" tabindex="-1"></a><span class="kw">}</span></span>
+<span id="cb77-72"><a href="consensus.html#cb77-72" tabindex="-1"></a></span>
+<span id="cb77-73"><a href="consensus.html#cb77-73" tabindex="-1"></a><span class="fu">make_vcf_from_keys()</span> <span class="kw">{</span></span>
+<span id="cb77-74"><a href="consensus.html#cb77-74" tabindex="-1"></a>    <span class="bu">local</span> <span class="va">key_file</span><span class="op">=</span><span class="st">&quot;</span><span class="va">$1</span><span class="st">&quot;</span></span>
+<span id="cb77-75"><a href="consensus.html#cb77-75" tabindex="-1"></a>    <span class="bu">local</span> <span class="va">out_vcf</span><span class="op">=</span><span class="st">&quot;</span><span class="va">$2</span><span class="st">&quot;</span></span>
+<span id="cb77-76"><a href="consensus.html#cb77-76" tabindex="-1"></a>    <span class="kw">{</span></span>
+<span id="cb77-77"><a href="consensus.html#cb77-77" tabindex="-1"></a>        <span class="bu">echo</span> <span class="st">&quot;##fileformat=VCFv4.2&quot;</span></span>
+<span id="cb77-78"><a href="consensus.html#cb77-78" tabindex="-1"></a>        <span class="cf">for</span> i <span class="kw">in</span> <span class="va">$(</span><span class="fu">seq</span> 1 22<span class="va">)</span><span class="kw">;</span> <span class="cf">do</span> <span class="bu">echo</span> <span class="st">&quot;##contig=&lt;ID=chr</span><span class="va">${i}</span><span class="st">&gt;&quot;</span><span class="kw">;</span> <span class="cf">done</span></span>
+<span id="cb77-79"><a href="consensus.html#cb77-79" tabindex="-1"></a>        <span class="bu">echo</span> <span class="st">&quot;##contig=&lt;ID=chrX&gt;&quot;</span></span>
+<span id="cb77-80"><a href="consensus.html#cb77-80" tabindex="-1"></a>        <span class="bu">echo</span> <span class="st">&quot;##contig=&lt;ID=chrY&gt;&quot;</span></span>
+<span id="cb77-81"><a href="consensus.html#cb77-81" tabindex="-1"></a>        <span class="bu">echo</span> <span class="st">&quot;##contig=&lt;ID=chrM&gt;&quot;</span></span>
+<span id="cb77-82"><a href="consensus.html#cb77-82" tabindex="-1"></a>        <span class="bu">echo</span> <span class="st">&#39;##FORMAT=&lt;ID=GT,Number=1,Type=String,Description=&quot;Genotype&quot;&gt;&#39;</span></span>
+<span id="cb77-83"><a href="consensus.html#cb77-83" tabindex="-1"></a>        <span class="bu">echo</span> <span class="at">-e</span> <span class="st">&quot;#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tCONSENSUS&quot;</span></span>
+<span id="cb77-84"><a href="consensus.html#cb77-84" tabindex="-1"></a>        <span class="fu">awk</span> <span class="at">-F</span><span class="st">&#39;:&#39;</span> <span class="st">&#39;BEGIN{OFS=&quot;\t&quot;}{print $1,$2,&quot;.&quot;,$3,$4,&quot;.&quot;,&quot;PASS&quot;,&quot;.&quot;,&quot;GT&quot;,&quot;0/1&quot;}&#39;</span> <span class="st">&quot;</span><span class="va">$key_file</span><span class="st">&quot;</span></span>
+<span id="cb77-85"><a href="consensus.html#cb77-85" tabindex="-1"></a>    <span class="kw">}</span> <span class="op">&gt;</span> <span class="st">&quot;</span><span class="va">$out_vcf</span><span class="st">&quot;</span></span>
+<span id="cb77-86"><a href="consensus.html#cb77-86" tabindex="-1"></a>    <span class="ex">bgzip</span> <span class="at">-f</span> <span class="st">&quot;</span><span class="va">$out_vcf</span><span class="st">&quot;</span></span>
+<span id="cb77-87"><a href="consensus.html#cb77-87" tabindex="-1"></a>    <span class="ex">tabix</span> <span class="at">-f</span> <span class="at">-p</span> vcf <span class="st">&quot;</span><span class="va">${out_vcf}</span><span class="st">.gz&quot;</span></span>
+<span id="cb77-88"><a href="consensus.html#cb77-88" tabindex="-1"></a><span class="kw">}</span></span>
+<span id="cb77-89"><a href="consensus.html#cb77-89" tabindex="-1"></a></span>
+<span id="cb77-90"><a href="consensus.html#cb77-90" tabindex="-1"></a><span class="cf">for</span> sample <span class="kw">in</span> <span class="st">&quot;</span><span class="va">${samples</span><span class="op">[@]</span><span class="va">}</span><span class="st">&quot;</span><span class="kw">;</span> <span class="cf">do</span></span>
+<span id="cb77-91"><a href="consensus.html#cb77-91" tabindex="-1"></a>    <span class="bu">echo</span> <span class="st">&quot;==============================&quot;</span></span>
+<span id="cb77-92"><a href="consensus.html#cb77-92" tabindex="-1"></a>    <span class="bu">echo</span> <span class="st">&quot;&gt;&gt;&gt; Processing </span><span class="va">$sample</span><span class="st">&quot;</span></span>
+<span id="cb77-93"><a href="consensus.html#cb77-93" tabindex="-1"></a>    <span class="bu">echo</span> <span class="st">&quot;==============================&quot;</span></span>
+<span id="cb77-94"><a href="consensus.html#cb77-94" tabindex="-1"></a></span>
+<span id="cb77-95"><a href="consensus.html#cb77-95" tabindex="-1"></a>    <span class="va">sample_out</span><span class="op">=</span><span class="st">&quot;</span><span class="va">${OUT_BASE}</span><span class="st">/</span><span class="va">${sample}</span><span class="st">&quot;</span></span>
+<span id="cb77-96"><a href="consensus.html#cb77-96" tabindex="-1"></a>    <span class="fu">mkdir</span> <span class="at">-p</span> <span class="st">&quot;</span><span class="va">$sample_out</span><span class="st">/tmp&quot;</span> <span class="st">&quot;</span><span class="va">$sample_out</span><span class="st">/logs&quot;</span></span>
+<span id="cb77-97"><a href="consensus.html#cb77-97" tabindex="-1"></a></span>
+<span id="cb77-98"><a href="consensus.html#cb77-98" tabindex="-1"></a>    <span class="va">truth_vcf</span><span class="op">=</span><span class="va">$(</span><span class="ex">get_truth_vcf</span> <span class="st">&quot;</span><span class="va">$sample</span><span class="st">&quot;</span><span class="va">)</span></span>
+<span id="cb77-99"><a href="consensus.html#cb77-99" tabindex="-1"></a>    <span class="va">bed_file</span><span class="op">=</span><span class="va">$(</span><span class="ex">get_bed</span> <span class="st">&quot;</span><span class="va">$sample</span><span class="st">&quot;</span><span class="va">)</span></span>
+<span id="cb77-100"><a href="consensus.html#cb77-100" tabindex="-1"></a></span>
+<span id="cb77-101"><a href="consensus.html#cb77-101" tabindex="-1"></a>    <span class="kw">[[</span> <span class="ot">!</span> <span class="ot">-f</span> <span class="st">&quot;</span><span class="va">$truth_vcf</span><span class="st">&quot;</span> <span class="kw">]]</span> <span class="kw">&amp;&amp;</span> <span class="kw">{</span> <span class="bu">echo</span> <span class="st">&quot;[WARN] missing WES: </span><span class="va">$truth_vcf</span><span class="st">&quot;</span><span class="kw">;</span> <span class="cf">continue</span><span class="kw">;</span> <span class="kw">}</span></span>
+<span id="cb77-102"><a href="consensus.html#cb77-102" tabindex="-1"></a>    <span class="kw">[[</span> <span class="ot">!</span> <span class="ot">-f</span> <span class="st">&quot;</span><span class="va">$bed_file</span><span class="st">&quot;</span> <span class="kw">]]</span> <span class="kw">&amp;&amp;</span> <span class="kw">{</span> <span class="bu">echo</span> <span class="st">&quot;[WARN] missing BED: </span><span class="va">$bed_file</span><span class="st">&quot;</span><span class="kw">;</span> <span class="cf">continue</span><span class="kw">;</span> <span class="kw">}</span></span>
+<span id="cb77-103"><a href="consensus.html#cb77-103" tabindex="-1"></a></span>
+<span id="cb77-104"><a href="consensus.html#cb77-104" tabindex="-1"></a>    <span class="cf">for</span> combo <span class="kw">in</span> <span class="st">&quot;</span><span class="va">${combos</span><span class="op">[@]</span><span class="va">}</span><span class="st">&quot;</span><span class="kw">;</span> <span class="cf">do</span></span>
+<span id="cb77-105"><a href="consensus.html#cb77-105" tabindex="-1"></a>         <span class="co"># Determine the combination size (2, 3, or 4 tools)</span></span>
+<span id="cb77-106"><a href="consensus.html#cb77-106" tabindex="-1"></a>        <span class="va">IFS</span><span class="op">=</span><span class="st">&#39;,&#39;</span> <span class="bu">read</span> <span class="at">-ra</span> <span class="va">tools</span> <span class="op">&lt;&lt;&lt;</span> <span class="st">&quot;</span><span class="va">$combo</span><span class="st">&quot;</span></span>
+<span id="cb77-107"><a href="consensus.html#cb77-107" tabindex="-1"></a>        <span class="va">n_tools</span><span class="op">=</span><span class="va">${</span><span class="op">#</span><span class="va">tools</span><span class="op">[@]</span><span class="va">}</span></span>
+<span id="cb77-108"><a href="consensus.html#cb77-108" tabindex="-1"></a>        <span class="va">combo_name</span><span class="op">=</span><span class="va">$(</span><span class="bu">echo</span> <span class="st">&quot;</span><span class="va">$combo</span><span class="st">&quot;</span> <span class="kw">|</span> <span class="fu">tr</span> <span class="st">&#39;,&#39;</span> <span class="st">&#39;+&#39;</span><span class="va">)</span></span>
+<span id="cb77-109"><a href="consensus.html#cb77-109" tabindex="-1"></a>        <span class="va">combo_tag</span><span class="op">=</span><span class="va">$(</span><span class="bu">echo</span> <span class="st">&quot;</span><span class="va">$combo</span><span class="st">&quot;</span> <span class="kw">|</span> <span class="fu">tr</span> <span class="st">&#39;,&#39;</span> <span class="st">&#39;_&#39;</span><span class="va">)</span></span>
+<span id="cb77-110"><a href="consensus.html#cb77-110" tabindex="-1"></a></span>
+<span id="cb77-111"><a href="consensus.html#cb77-111" tabindex="-1"></a>        <span class="va">merged</span><span class="op">=</span><span class="st">&quot;</span><span class="va">${sample_out}</span><span class="st">/tmp/</span><span class="va">${sample}</span><span class="st">.</span><span class="va">${combo_tag}</span><span class="st">.merged.tsv&quot;</span></span>
+<span id="cb77-112"><a href="consensus.html#cb77-112" tabindex="-1"></a>        <span class="va">support_table</span><span class="op">=</span><span class="st">&quot;</span><span class="va">${sample_out}</span><span class="st">/</span><span class="va">${sample}</span><span class="st">.</span><span class="va">${combo_tag}</span><span class="st">.support_count.tsv&quot;</span></span>
+<span id="cb77-113"><a href="consensus.html#cb77-113" tabindex="-1"></a>        <span class="bu">:</span> <span class="op">&gt;</span> <span class="st">&quot;</span><span class="va">$merged</span><span class="st">&quot;</span></span>
+<span id="cb77-114"><a href="consensus.html#cb77-114" tabindex="-1"></a></span>
+<span id="cb77-115"><a href="consensus.html#cb77-115" tabindex="-1"></a>        <span class="va">miss</span><span class="op">=</span>0</span>
+<span id="cb77-116"><a href="consensus.html#cb77-116" tabindex="-1"></a>        <span class="cf">for</span> tool <span class="kw">in</span> <span class="st">&quot;</span><span class="va">${tools</span><span class="op">[@]</span><span class="va">}</span><span class="st">&quot;</span><span class="kw">;</span> <span class="cf">do</span></span>
+<span id="cb77-117"><a href="consensus.html#cb77-117" tabindex="-1"></a>            <span class="va">key_file</span><span class="op">=</span><span class="st">&quot;</span><span class="va">${POOL_BASE}</span><span class="st">/</span><span class="va">${sample}</span><span class="st">_</span><span class="va">${tool}</span><span class="st">/query.keys&quot;</span></span>
+<span id="cb77-118"><a href="consensus.html#cb77-118" tabindex="-1"></a>            <span class="cf">if</span> <span class="kw">[[</span> <span class="ot">!</span> <span class="ot">-f</span> <span class="st">&quot;</span><span class="va">$key_file</span><span class="st">&quot;</span> <span class="kw">]];</span> <span class="cf">then</span></span>
+<span id="cb77-119"><a href="consensus.html#cb77-119" tabindex="-1"></a>                <span class="bu">echo</span> <span class="st">&quot;[WARN] missing key: </span><span class="va">$sample</span><span class="st"> </span><span class="va">$tool</span><span class="st">&quot;</span></span>
+<span id="cb77-120"><a href="consensus.html#cb77-120" tabindex="-1"></a>                <span class="va">miss</span><span class="op">=</span>1</span>
+<span id="cb77-121"><a href="consensus.html#cb77-121" tabindex="-1"></a>                <span class="cf">break</span></span>
+<span id="cb77-122"><a href="consensus.html#cb77-122" tabindex="-1"></a>            <span class="cf">fi</span></span>
+<span id="cb77-123"><a href="consensus.html#cb77-123" tabindex="-1"></a>            <span class="fu">awk</span> <span class="at">-v</span> T=<span class="st">&quot;</span><span class="va">$tool</span><span class="st">&quot;</span> <span class="st">&#39;BEGIN{FS=&quot;:&quot;;OFS=&quot;\t&quot;}{print $1,$2,$3,$4,T}&#39;</span> <span class="st">&quot;</span><span class="va">$key_file</span><span class="st">&quot;</span> <span class="op">&gt;&gt;</span> <span class="st">&quot;</span><span class="va">$merged</span><span class="st">&quot;</span></span>
+<span id="cb77-124"><a href="consensus.html#cb77-124" tabindex="-1"></a>        <span class="cf">done</span></span>
+<span id="cb77-125"><a href="consensus.html#cb77-125" tabindex="-1"></a>        <span class="kw">[[</span> <span class="st">&quot;</span><span class="va">$miss</span><span class="st">&quot;</span> <span class="ot">-eq</span> 1 <span class="kw">]]</span> <span class="kw">&amp;&amp;</span> <span class="cf">continue</span></span>
+<span id="cb77-126"><a href="consensus.html#cb77-126" tabindex="-1"></a></span>
+<span id="cb77-127"><a href="consensus.html#cb77-127" tabindex="-1"></a>        <span class="fu">awk</span> <span class="st">&#39;BEGIN{FS=OFS=&quot;\t&quot;}{</span></span>
+<span id="cb77-128"><a href="consensus.html#cb77-128" tabindex="-1"></a><span class="st">            key=$1&quot;\t&quot;$2&quot;\t&quot;$3&quot;\t&quot;$4</span></span>
+<span id="cb77-129"><a href="consensus.html#cb77-129" tabindex="-1"></a><span class="st">            if(!(seen[key,$5]++)){</span></span>
+<span id="cb77-130"><a href="consensus.html#cb77-130" tabindex="-1"></a><span class="st">                count[key]++</span></span>
+<span id="cb77-131"><a href="consensus.html#cb77-131" tabindex="-1"></a><span class="st">                toolset[key]=(toolset[key]==&quot;&quot;?$5:toolset[key]&quot;,&quot;$5)</span></span>
+<span id="cb77-132"><a href="consensus.html#cb77-132" tabindex="-1"></a><span class="st">            }</span></span>
+<span id="cb77-133"><a href="consensus.html#cb77-133" tabindex="-1"></a><span class="st">        }END{</span></span>
+<span id="cb77-134"><a href="consensus.html#cb77-134" tabindex="-1"></a><span class="st">            for(k in count) print k,count[k],toolset[k]</span></span>
+<span id="cb77-135"><a href="consensus.html#cb77-135" tabindex="-1"></a><span class="st">        }&#39;</span> <span class="st">&quot;</span><span class="va">$merged</span><span class="st">&quot;</span> <span class="kw">|</span> <span class="fu">sort</span> <span class="at">-k1,1V</span> <span class="at">-k2,2n</span> <span class="op">&gt;</span> <span class="st">&quot;</span><span class="va">$support_table</span><span class="st">&quot;</span></span>
+<span id="cb77-136"><a href="consensus.html#cb77-136" tabindex="-1"></a></span>
+<span id="cb77-137"><a href="consensus.html#cb77-137" tabindex="-1"></a>        <span class="cf">if</span> <span class="kw">[[</span> <span class="st">&quot;</span><span class="va">$n_tools</span><span class="st">&quot;</span> <span class="ot">-eq</span> 2 <span class="kw">]];</span> <span class="cf">then</span></span>
+<span id="cb77-138"><a href="consensus.html#cb77-138" tabindex="-1"></a>            <span class="va">levels</span><span class="op">=</span><span class="va">(</span><span class="st">&quot;ge1&quot;</span> <span class="st">&quot;eq2&quot;</span><span class="va">)</span></span>
+<span id="cb77-139"><a href="consensus.html#cb77-139" tabindex="-1"></a>        <span class="cf">elif</span> <span class="kw">[[</span> <span class="st">&quot;</span><span class="va">$n_tools</span><span class="st">&quot;</span> <span class="ot">-eq</span> 3 <span class="kw">]];</span> <span class="cf">then</span></span>
+<span id="cb77-140"><a href="consensus.html#cb77-140" tabindex="-1"></a>            <span class="va">levels</span><span class="op">=</span><span class="va">(</span><span class="st">&quot;ge1&quot;</span> <span class="st">&quot;ge2&quot;</span> <span class="st">&quot;eq3&quot;</span><span class="va">)</span></span>
+<span id="cb77-141"><a href="consensus.html#cb77-141" tabindex="-1"></a>        <span class="cf">else</span></span>
+<span id="cb77-142"><a href="consensus.html#cb77-142" tabindex="-1"></a>            <span class="va">levels</span><span class="op">=</span><span class="va">(</span><span class="st">&quot;ge1&quot;</span> <span class="st">&quot;ge2&quot;</span> <span class="st">&quot;ge3&quot;</span> <span class="st">&quot;eq4&quot;</span><span class="va">)</span></span>
+<span id="cb77-143"><a href="consensus.html#cb77-143" tabindex="-1"></a>        <span class="cf">fi</span></span>
+<span id="cb77-144"><a href="consensus.html#cb77-144" tabindex="-1"></a></span>
+<span id="cb77-145"><a href="consensus.html#cb77-145" tabindex="-1"></a>        <span class="cf">for</span> level <span class="kw">in</span> <span class="st">&quot;</span><span class="va">${levels</span><span class="op">[@]</span><span class="va">}</span><span class="st">&quot;</span><span class="kw">;</span> <span class="cf">do</span></span>
+<span id="cb77-146"><a href="consensus.html#cb77-146" tabindex="-1"></a>            <span class="cf">case</span> <span class="st">&quot;</span><span class="va">$level</span><span class="st">&quot;</span> <span class="kw">in</span></span>
+<span id="cb77-147"><a href="consensus.html#cb77-147" tabindex="-1"></a>                <span class="ss">ge1</span><span class="kw">)</span> <span class="va">expr</span><span class="op">=</span><span class="st">&#39;$5&gt;=1&#39;</span> <span class="cf">;;</span></span>
+<span id="cb77-148"><a href="consensus.html#cb77-148" tabindex="-1"></a>                <span class="ss">ge2</span><span class="kw">)</span> <span class="va">expr</span><span class="op">=</span><span class="st">&#39;$5&gt;=2&#39;</span> <span class="cf">;;</span></span>
+<span id="cb77-149"><a href="consensus.html#cb77-149" tabindex="-1"></a>                <span class="ss">ge3</span><span class="kw">)</span> <span class="va">expr</span><span class="op">=</span><span class="st">&#39;$5&gt;=3&#39;</span> <span class="cf">;;</span></span>
+<span id="cb77-150"><a href="consensus.html#cb77-150" tabindex="-1"></a>                <span class="ss">eq2</span><span class="kw">)</span> <span class="va">expr</span><span class="op">=</span><span class="st">&#39;$5==2&#39;</span> <span class="cf">;;</span></span>
+<span id="cb77-151"><a href="consensus.html#cb77-151" tabindex="-1"></a>                <span class="ss">eq3</span><span class="kw">)</span> <span class="va">expr</span><span class="op">=</span><span class="st">&#39;$5==3&#39;</span> <span class="cf">;;</span></span>
+<span id="cb77-152"><a href="consensus.html#cb77-152" tabindex="-1"></a>                <span class="ss">eq4</span><span class="kw">)</span> <span class="va">expr</span><span class="op">=</span><span class="st">&#39;$5==4&#39;</span> <span class="cf">;;</span></span>
+<span id="cb77-153"><a href="consensus.html#cb77-153" tabindex="-1"></a>            <span class="cf">esac</span></span>
+<span id="cb77-154"><a href="consensus.html#cb77-154" tabindex="-1"></a></span>
+<span id="cb77-155"><a href="consensus.html#cb77-155" tabindex="-1"></a>            <span class="va">key_txt</span><span class="op">=</span><span class="st">&quot;</span><span class="va">${sample_out}</span><span class="st">/</span><span class="va">${sample}</span><span class="st">.</span><span class="va">${combo_tag}</span><span class="st">.</span><span class="va">${level}</span><span class="st">.keys.txt&quot;</span></span>
+<span id="cb77-156"><a href="consensus.html#cb77-156" tabindex="-1"></a>            <span class="va">out_vcf</span><span class="op">=</span><span class="st">&quot;</span><span class="va">${sample_out}</span><span class="st">/</span><span class="va">${sample}</span><span class="st">.</span><span class="va">${combo_tag}</span><span class="st">.</span><span class="va">${level}</span><span class="st">.vcf&quot;</span></span>
+<span id="cb77-157"><a href="consensus.html#cb77-157" tabindex="-1"></a>            <span class="va">rtg_out</span><span class="op">=</span><span class="st">&quot;</span><span class="va">${sample_out}</span><span class="st">/rtg_</span><span class="va">${combo_tag}</span><span class="st">_</span><span class="va">${level}</span><span class="st">&quot;</span></span>
+<span id="cb77-158"><a href="consensus.html#cb77-158" tabindex="-1"></a></span>
+<span id="cb77-159"><a href="consensus.html#cb77-159" tabindex="-1"></a>            <span class="fu">awk</span> <span class="st">&#39;BEGIN{FS=OFS=&quot;\t&quot;} &#39;&quot;</span><span class="va">$expr</span><span class="st">&quot;&#39; {print $1&quot;:&quot;$2&quot;:&quot;$3&quot;:&quot;$4}&#39;</span> <span class="st">&quot;</span><span class="va">$support_table</span><span class="st">&quot;</span> <span class="op">&gt;</span> <span class="st">&quot;</span><span class="va">$key_txt</span><span class="st">&quot;</span></span>
+<span id="cb77-160"><a href="consensus.html#cb77-160" tabindex="-1"></a>            <span class="va">n_sites</span><span class="op">=</span><span class="va">$(</span><span class="fu">wc</span> <span class="at">-l</span> <span class="op">&lt;</span> <span class="st">&quot;</span><span class="va">$key_txt</span><span class="st">&quot;</span><span class="va">)</span></span>
+<span id="cb77-161"><a href="consensus.html#cb77-161" tabindex="-1"></a>            <span class="bu">echo</span> <span class="st">&quot;[INFO] </span><span class="va">$sample</span><span class="st"> | </span><span class="va">$combo_name</span><span class="st"> | </span><span class="va">$level</span><span class="st"> | </span><span class="va">$n_sites</span><span class="st"> sites&quot;</span></span>
+<span id="cb77-162"><a href="consensus.html#cb77-162" tabindex="-1"></a></span>
+<span id="cb77-163"><a href="consensus.html#cb77-163" tabindex="-1"></a>            <span class="kw">[[</span> <span class="st">&quot;</span><span class="va">$n_sites</span><span class="st">&quot;</span> <span class="ot">-eq</span> 0 <span class="kw">]]</span> <span class="kw">&amp;&amp;</span> <span class="cf">continue</span></span>
+<span id="cb77-164"><a href="consensus.html#cb77-164" tabindex="-1"></a></span>
+<span id="cb77-165"><a href="consensus.html#cb77-165" tabindex="-1"></a>            <span class="ex">make_vcf_from_keys</span> <span class="st">&quot;</span><span class="va">$key_txt</span><span class="st">&quot;</span> <span class="st">&quot;</span><span class="va">$out_vcf</span><span class="st">&quot;</span></span>
+<span id="cb77-166"><a href="consensus.html#cb77-166" tabindex="-1"></a></span>
+<span id="cb77-167"><a href="consensus.html#cb77-167" tabindex="-1"></a>            <span class="fu">rm</span> <span class="at">-rf</span> <span class="st">&quot;</span><span class="va">$rtg_out</span><span class="st">&quot;</span></span>
+<span id="cb77-168"><a href="consensus.html#cb77-168" tabindex="-1"></a></span>
+<span id="cb77-169"><a href="consensus.html#cb77-169" tabindex="-1"></a>            <span class="ex">rtg</span> vcfeval <span class="dt">\</span></span>
+<span id="cb77-170"><a href="consensus.html#cb77-170" tabindex="-1"></a>                <span class="at">-b</span> <span class="st">&quot;</span><span class="va">$truth_vcf</span><span class="st">&quot;</span> <span class="dt">\</span></span>
+<span id="cb77-171"><a href="consensus.html#cb77-171" tabindex="-1"></a>                <span class="at">-c</span> <span class="st">&quot;</span><span class="va">${out_vcf}</span><span class="st">.gz&quot;</span> <span class="dt">\</span></span>
+<span id="cb77-172"><a href="consensus.html#cb77-172" tabindex="-1"></a>                <span class="at">-t</span> <span class="st">&quot;</span><span class="va">$REF_SDF</span><span class="st">&quot;</span> <span class="dt">\</span></span>
+<span id="cb77-173"><a href="consensus.html#cb77-173" tabindex="-1"></a>                <span class="at">--bed-regions</span> <span class="st">&quot;</span><span class="va">$bed_file</span><span class="st">&quot;</span> <span class="dt">\</span></span>
+<span id="cb77-174"><a href="consensus.html#cb77-174" tabindex="-1"></a>                <span class="at">-o</span> <span class="st">&quot;</span><span class="va">$rtg_out</span><span class="st">&quot;</span> <span class="dt">\</span></span>
+<span id="cb77-175"><a href="consensus.html#cb77-175" tabindex="-1"></a>                <span class="at">--squash-ploidy</span> <span class="dt">\</span></span>
+<span id="cb77-176"><a href="consensus.html#cb77-176" tabindex="-1"></a>                <span class="at">--output-mode</span><span class="op">=</span>annotate <span class="dt">\</span></span>
+<span id="cb77-177"><a href="consensus.html#cb77-177" tabindex="-1"></a>                <span class="op">&gt;</span> <span class="st">&quot;</span><span class="va">${sample_out}</span><span class="st">/logs/</span><span class="va">${combo_tag}</span><span class="st">_</span><span class="va">${level}</span><span class="st">.log&quot;</span> <span class="dv">2</span><span class="op">&gt;&amp;</span><span class="dv">1</span></span>
+<span id="cb77-178"><a href="consensus.html#cb77-178" tabindex="-1"></a>        <span class="cf">done</span></span>
+<span id="cb77-179"><a href="consensus.html#cb77-179" tabindex="-1"></a>    <span class="cf">done</span></span>
+<span id="cb77-180"><a href="consensus.html#cb77-180" tabindex="-1"></a></span>
+<span id="cb77-181"><a href="consensus.html#cb77-181" tabindex="-1"></a>    <span class="fu">rm</span> <span class="at">-rf</span> <span class="st">&quot;</span><span class="va">${sample_out}</span><span class="st">/tmp&quot;</span></span>
+<span id="cb77-182"><a href="consensus.html#cb77-182" tabindex="-1"></a><span class="cf">done</span></span>
+<span id="cb77-183"><a href="consensus.html#cb77-183" tabindex="-1"></a></span>
+<span id="cb77-184"><a href="consensus.html#cb77-184" tabindex="-1"></a><span class="bu">echo</span> <span class="st">&quot;All done.&quot;</span></span></code></pre></div>
+</details>
+<details>
+<summary>
+RTG summary collection
+</summary>
+<div class="sourceCode" id="cb78"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb78-1"><a href="consensus.html#cb78-1" tabindex="-1"></a><span class="va">BASE</span><span class="op">=</span><span class="st">&quot;/mnt/storage/tantingting/scmut/isec/support_consensus_D1D2&quot;</span></span>
+<span id="cb78-2"><a href="consensus.html#cb78-2" tabindex="-1"></a><span class="va">OUT</span><span class="op">=</span><span class="st">&quot;</span><span class="va">${BASE}</span><span class="st">/rtg_summary_all.tsv&quot;</span></span>
+<span id="cb78-3"><a href="consensus.html#cb78-3" tabindex="-1"></a></span>
+<span id="cb78-4"><a href="consensus.html#cb78-4" tabindex="-1"></a><span class="bu">echo</span> <span class="at">-e</span> <span class="st">&quot;Sample\tCombo\tLevel\tTP\tFP\tFN\tPrecision\tSensitivity\tF_measure&quot;</span> <span class="op">&gt;</span> <span class="st">&quot;</span><span class="va">$OUT</span><span class="st">&quot;</span></span>
+<span id="cb78-5"><a href="consensus.html#cb78-5" tabindex="-1"></a></span>
+<span id="cb78-6"><a href="consensus.html#cb78-6" tabindex="-1"></a><span class="cf">for</span> summary <span class="kw">in</span> <span class="va">${BASE}</span>/<span class="pp">*</span>/rtg_<span class="pp">*</span>/summary.txt<span class="kw">;</span> <span class="cf">do</span></span>
+<span id="cb78-7"><a href="consensus.html#cb78-7" tabindex="-1"></a>    <span class="kw">[[</span> <span class="ot">-f</span> <span class="st">&quot;</span><span class="va">$summary</span><span class="st">&quot;</span> <span class="kw">]]</span> <span class="kw">||</span> <span class="cf">continue</span></span>
+<span id="cb78-8"><a href="consensus.html#cb78-8" tabindex="-1"></a>    <span class="va">sample</span><span class="op">=</span><span class="va">$(</span><span class="fu">basename</span> <span class="st">&quot;</span><span class="va">$(</span><span class="fu">dirname</span> <span class="st">&quot;</span><span class="va">$(</span><span class="fu">dirname</span> <span class="st">&quot;</span><span class="va">$summary</span><span class="st">&quot;</span><span class="va">)</span><span class="st">&quot;</span><span class="va">)</span><span class="st">&quot;</span><span class="va">)</span></span>
+<span id="cb78-9"><a href="consensus.html#cb78-9" tabindex="-1"></a>    <span class="va">name</span><span class="op">=</span><span class="va">$(</span><span class="fu">basename</span> <span class="st">&quot;</span><span class="va">$(</span><span class="fu">dirname</span> <span class="st">&quot;</span><span class="va">$summary</span><span class="st">&quot;</span><span class="va">)</span><span class="st">&quot;</span> <span class="kw">|</span> <span class="fu">sed</span> <span class="st">&#39;s/^rtg_//&#39;</span><span class="va">)</span></span>
+<span id="cb78-10"><a href="consensus.html#cb78-10" tabindex="-1"></a>    <span class="va">level</span><span class="op">=</span><span class="va">${name</span><span class="op">##</span><span class="pp">*</span>_<span class="va">}</span></span>
+<span id="cb78-11"><a href="consensus.html#cb78-11" tabindex="-1"></a>    <span class="va">combo</span><span class="op">=</span><span class="va">${name</span><span class="op">%</span>_<span class="pp">*</span><span class="va">}</span></span>
+<span id="cb78-12"><a href="consensus.html#cb78-12" tabindex="-1"></a>    <span class="va">line</span><span class="op">=</span><span class="va">$(</span><span class="fu">grep</span> <span class="at">-E</span> <span class="st">&#39;^[[:space:]]*None[[:space:]]+&#39;</span> <span class="st">&quot;</span><span class="va">$summary</span><span class="st">&quot;</span> <span class="kw">|</span> <span class="fu">tail</span> <span class="at">-1</span><span class="va">)</span></span>
+<span id="cb78-13"><a href="consensus.html#cb78-13" tabindex="-1"></a>    <span class="kw">[[</span> <span class="ot">-z</span> <span class="st">&quot;</span><span class="va">$line</span><span class="st">&quot;</span> <span class="kw">]]</span> <span class="kw">&amp;&amp;</span> <span class="cf">continue</span></span>
+<span id="cb78-14"><a href="consensus.html#cb78-14" tabindex="-1"></a>    <span class="va">TP</span><span class="op">=</span><span class="va">$(</span><span class="bu">echo</span> <span class="st">&quot;</span><span class="va">$line</span><span class="st">&quot;</span> <span class="kw">|</span> <span class="fu">awk</span> <span class="st">&#39;{print $3}&#39;</span><span class="va">)</span></span>
+<span id="cb78-15"><a href="consensus.html#cb78-15" tabindex="-1"></a>    <span class="va">FP</span><span class="op">=</span><span class="va">$(</span><span class="bu">echo</span> <span class="st">&quot;</span><span class="va">$line</span><span class="st">&quot;</span> <span class="kw">|</span> <span class="fu">awk</span> <span class="st">&#39;{print $4}&#39;</span><span class="va">)</span></span>
+<span id="cb78-16"><a href="consensus.html#cb78-16" tabindex="-1"></a>    <span class="va">FN</span><span class="op">=</span><span class="va">$(</span><span class="bu">echo</span> <span class="st">&quot;</span><span class="va">$line</span><span class="st">&quot;</span> <span class="kw">|</span> <span class="fu">awk</span> <span class="st">&#39;{print $5}&#39;</span><span class="va">)</span></span>
+<span id="cb78-17"><a href="consensus.html#cb78-17" tabindex="-1"></a>    <span class="va">P</span><span class="op">=</span><span class="va">$(</span><span class="bu">echo</span> <span class="st">&quot;</span><span class="va">$line</span><span class="st">&quot;</span> <span class="kw">|</span> <span class="fu">awk</span> <span class="st">&#39;{print $6}&#39;</span><span class="va">)</span></span>
+<span id="cb78-18"><a href="consensus.html#cb78-18" tabindex="-1"></a>    <span class="va">R</span><span class="op">=</span><span class="va">$(</span><span class="bu">echo</span> <span class="st">&quot;</span><span class="va">$line</span><span class="st">&quot;</span> <span class="kw">|</span> <span class="fu">awk</span> <span class="st">&#39;{print $7}&#39;</span><span class="va">)</span></span>
+<span id="cb78-19"><a href="consensus.html#cb78-19" tabindex="-1"></a>    <span class="va">F1</span><span class="op">=</span><span class="va">$(</span><span class="bu">echo</span> <span class="st">&quot;</span><span class="va">$line</span><span class="st">&quot;</span> <span class="kw">|</span> <span class="fu">awk</span> <span class="st">&#39;{print $8}&#39;</span><span class="va">)</span></span>
+<span id="cb78-20"><a href="consensus.html#cb78-20" tabindex="-1"></a>    <span class="bu">echo</span> <span class="at">-e</span> <span class="st">&quot;</span><span class="va">${sample}</span><span class="st">\t</span><span class="va">${combo}</span><span class="st">\t</span><span class="va">${level}</span><span class="st">\t</span><span class="va">${TP}</span><span class="st">\t</span><span class="va">${FP}</span><span class="st">\t</span><span class="va">${FN}</span><span class="st">\t</span><span class="va">${P}</span><span class="st">\t</span><span class="va">${R}</span><span class="st">\t</span><span class="va">${F1}</span><span class="st">&quot;</span> <span class="op">&gt;&gt;</span> <span class="st">&quot;</span><span class="va">$OUT</span><span class="st">&quot;</span></span>
+<span id="cb78-21"><a href="consensus.html#cb78-21" tabindex="-1"></a><span class="cf">done</span></span>
+<span id="cb78-22"><a href="consensus.html#cb78-22" tabindex="-1"></a></span>
+<span id="cb78-23"><a href="consensus.html#cb78-23" tabindex="-1"></a><span class="bu">echo</span> <span class="st">&quot;Done: </span><span class="va">$OUT</span><span class="st">&quot;</span></span></code></pre></div>
+</details>
+<details>
+<summary>
+plotting
+</summary>
+<div class="sourceCode" id="cb79"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb79-1"><a href="consensus.html#cb79-1" tabindex="-1"></a><span class="ex">library</span><span class="er">(</span><span class="ex">tidyverse</span><span class="kw">)</span></span>
+<span id="cb79-2"><a href="consensus.html#cb79-2" tabindex="-1"></a><span class="ex">library</span><span class="er">(</span><span class="ex">ggsci</span><span class="kw">)</span></span>
+<span id="cb79-3"><a href="consensus.html#cb79-3" tabindex="-1"></a><span class="ex">library</span><span class="er">(</span><span class="ex">scales</span><span class="kw">)</span></span>
+<span id="cb79-4"><a href="consensus.html#cb79-4" tabindex="-1"></a></span>
+<span id="cb79-5"><a href="consensus.html#cb79-5" tabindex="-1"></a><span class="ex">base_dir</span> <span class="op">&lt;</span>- <span class="st">&quot;/mnt/storage/tantingting/scmut/isec/support_consensus_D1D2&quot;</span></span>
+<span id="cb79-6"><a href="consensus.html#cb79-6" tabindex="-1"></a><span class="ex">fig_dir</span> <span class="op">&lt;</span>- <span class="st">&quot;/mnt/storage/tantingting/scmut/figure_D1D2/figure3&quot;</span></span>
+<span id="cb79-7"><a href="consensus.html#cb79-7" tabindex="-1"></a></span>
+<span id="cb79-8"><a href="consensus.html#cb79-8" tabindex="-1"></a><span class="fu">df</span> <span class="op">&lt;</span>- read.table<span class="er">(</span><span class="ex">file.path</span><span class="er">(</span><span class="ex">base_dir,</span> <span class="st">&quot;rtg_summary_all.tsv&quot;</span><span class="kw">)</span><span class="ex">,</span> header = TRUE, sep = <span class="st">&quot;\t&quot;</span>, stringsAsFactors = FALSE, check.names = FALSE<span class="kw">)</span></span>
+<span id="cb79-9"><a href="consensus.html#cb79-9" tabindex="-1"></a></span>
+<span id="cb79-10"><a href="consensus.html#cb79-10" tabindex="-1"></a><span class="fu">df</span> <span class="op">&lt;</span>- df %<span class="op">&gt;</span>%</span>
+<span id="cb79-11"><a href="consensus.html#cb79-11" tabindex="-1"></a>  <span class="ex">mutate</span><span class="er">(</span></span>
+<span id="cb79-12"><a href="consensus.html#cb79-12" tabindex="-1"></a>    <span class="ex">Combo</span> = str_replace_all<span class="er">(</span><span class="ex">Combo,</span> <span class="st">&quot;_&quot;</span>, <span class="st">&quot;+&quot;</span><span class="kw">)</span><span class="ex">,</span></span>
+<span id="cb79-13"><a href="consensus.html#cb79-13" tabindex="-1"></a>    <span class="ex">n_tools</span> = str_count<span class="er">(</span><span class="ex">Combo,</span> <span class="st">&quot;</span><span class="dt">\\</span><span class="st">+&quot;</span><span class="kw">)</span> <span class="ex">+</span> 1,</span>
+<span id="cb79-14"><a href="consensus.html#cb79-14" tabindex="-1"></a>    <span class="ex">Strategy</span> = case_when<span class="er">(</span></span>
+<span id="cb79-15"><a href="consensus.html#cb79-15" tabindex="-1"></a>      <span class="ex">n_tools</span> == 2 <span class="kw">&amp;</span> <span class="ex">Level</span> == <span class="st">&quot;ge1&quot;</span> ~ <span class="st">&quot;2 tools: &gt;=1&quot;</span>,</span>
+<span id="cb79-16"><a href="consensus.html#cb79-16" tabindex="-1"></a>      <span class="ex">n_tools</span> == 2 <span class="kw">&amp;</span> <span class="ex">Level</span> == <span class="st">&quot;eq2&quot;</span> ~ <span class="st">&quot;2 tools: all&quot;</span>,</span>
+<span id="cb79-17"><a href="consensus.html#cb79-17" tabindex="-1"></a>      <span class="ex">n_tools</span> == 3 <span class="kw">&amp;</span> <span class="ex">Level</span> == <span class="st">&quot;ge1&quot;</span> ~ <span class="st">&quot;3 tools: &gt;=1&quot;</span>,</span>
+<span id="cb79-18"><a href="consensus.html#cb79-18" tabindex="-1"></a>      <span class="ex">n_tools</span> == 3 <span class="kw">&amp;</span> <span class="ex">Level</span> == <span class="st">&quot;ge2&quot;</span> ~ <span class="st">&quot;3 tools: &gt;=2&quot;</span>,</span>
+<span id="cb79-19"><a href="consensus.html#cb79-19" tabindex="-1"></a>      <span class="ex">n_tools</span> == 3 <span class="kw">&amp;</span> <span class="ex">Level</span> == <span class="st">&quot;eq3&quot;</span> ~ <span class="st">&quot;3 tools: all&quot;</span>,</span>
+<span id="cb79-20"><a href="consensus.html#cb79-20" tabindex="-1"></a>      <span class="ex">n_tools</span> == 4 <span class="kw">&amp;</span> <span class="ex">Level</span> == <span class="st">&quot;ge1&quot;</span> ~ <span class="st">&quot;4 tools: &gt;=1&quot;</span>,</span>
+<span id="cb79-21"><a href="consensus.html#cb79-21" tabindex="-1"></a>      <span class="ex">n_tools</span> == 4 <span class="kw">&amp;</span> <span class="ex">Level</span> == <span class="st">&quot;ge2&quot;</span> ~ <span class="st">&quot;4 tools: &gt;=2&quot;</span>,</span>
+<span id="cb79-22"><a href="consensus.html#cb79-22" tabindex="-1"></a>      <span class="ex">n_tools</span> == 4 <span class="kw">&amp;</span> <span class="ex">Level</span> == <span class="st">&quot;ge3&quot;</span> ~ <span class="st">&quot;4 tools: &gt;=3&quot;</span>,</span>
+<span id="cb79-23"><a href="consensus.html#cb79-23" tabindex="-1"></a>      <span class="ex">n_tools</span> == 4 <span class="kw">&amp;</span> <span class="ex">Level</span> == <span class="st">&quot;eq4&quot;</span> ~ <span class="st">&quot;4 tools: all&quot;</span>,</span>
+<span id="cb79-24"><a href="consensus.html#cb79-24" tabindex="-1"></a>      <span class="ex">TRUE</span> ~ Level</span>
+<span id="cb79-25"><a href="consensus.html#cb79-25" tabindex="-1"></a>    <span class="kw">)</span><span class="ex">,</span></span>
+<span id="cb79-26"><a href="consensus.html#cb79-26" tabindex="-1"></a>    <span class="ex">Strategy</span> = factor<span class="er">(</span><span class="ex">Strategy,</span> levels = c<span class="er">(</span><span class="st">&quot;2 tools: &gt;=1&quot;</span><span class="ex">,</span><span class="st">&quot;2 tools: all&quot;</span><span class="ex">,</span><span class="st">&quot;3 tools: &gt;=1&quot;</span><span class="ex">,</span><span class="st">&quot;3 tools: &gt;=2&quot;</span><span class="ex">,</span><span class="st">&quot;3 tools: all&quot;</span><span class="ex">,</span><span class="st">&quot;4 tools: &gt;=1&quot;</span><span class="ex">,</span><span class="st">&quot;4 tools: &gt;=2&quot;</span><span class="ex">,</span><span class="st">&quot;4 tools: &gt;=3&quot;</span><span class="ex">,</span><span class="st">&quot;4 tools: all&quot;</span><span class="kw">))</span><span class="ex">,</span></span>
+<span id="cb79-27"><a href="consensus.html#cb79-27" tabindex="-1"></a>    <span class="ex">Dataset</span> = ifelse<span class="er">(</span><span class="ex">str_detect</span><span class="er">(</span><span class="ex">Sample,</span> <span class="st">&quot;_cSCC$&quot;</span><span class="kw">)</span><span class="ex">,</span> <span class="st">&quot;cSCC&quot;</span>, <span class="st">&quot;Melanoma&quot;</span><span class="kw">)</span></span>
+<span id="cb79-28"><a href="consensus.html#cb79-28" tabindex="-1"></a>  <span class="kw">)</span></span>
+<span id="cb79-29"><a href="consensus.html#cb79-29" tabindex="-1"></a></span>
+<span id="cb79-30"><a href="consensus.html#cb79-30" tabindex="-1"></a><span class="ex">p2</span> <span class="op">&lt;</span>- ggplot<span class="er">(</span><span class="fu">df</span>, aes<span class="er">(</span><span class="ex">x</span> = Strategy, y = F_measure, fill = Strategy<span class="kw">))</span> <span class="ex">+</span></span>
+<span id="cb79-31"><a href="consensus.html#cb79-31" tabindex="-1"></a>  <span class="ex">geom_boxplot</span><span class="er">(</span><span class="ex">alpha</span> = 0.7, outlier.shape = NA<span class="kw">)</span> <span class="ex">+</span></span>
+<span id="cb79-32"><a href="consensus.html#cb79-32" tabindex="-1"></a>  <span class="ex">geom_jitter</span><span class="er">(</span><span class="ex">width</span> = 0.15, size = 1.3, alpha = 0.45<span class="kw">)</span> <span class="ex">+</span></span>
+<span id="cb79-33"><a href="consensus.html#cb79-33" tabindex="-1"></a>  <span class="fu">scale_fill_npg()</span> <span class="ex">+</span></span>
+<span id="cb79-34"><a href="consensus.html#cb79-34" tabindex="-1"></a>  <span class="fu">theme_classic()</span> <span class="ex">+</span></span>
+<span id="cb79-35"><a href="consensus.html#cb79-35" tabindex="-1"></a>  <span class="ex">labs</span><span class="er">(</span><span class="ex">title</span> = <span class="st">&quot;Overall Performance of Ensemble Strategies&quot;</span>, x = <span class="st">&quot;Strategy&quot;</span>, y = <span class="st">&quot;F-measure&quot;</span><span class="kw">)</span> <span class="ex">+</span></span>
+<span id="cb79-36"><a href="consensus.html#cb79-36" tabindex="-1"></a>  <span class="ex">theme</span><span class="er">(</span><span class="ex">legend.position</span> = <span class="st">&quot;none&quot;</span>, axis.text.x = element_text<span class="er">(</span><span class="ex">angle</span> = 45, hjust = 1<span class="kw">)</span><span class="ex">,</span> axis.text = element_text<span class="er">(</span><span class="fu">size</span> = 11<span class="kw">)</span><span class="ex">,</span> axis.title = element_text<span class="er">(</span><span class="fu">size</span> = 13<span class="kw">)</span><span class="ex">,</span> plot.title = element_text<span class="er">(</span><span class="fu">size</span> = 14, face = <span class="st">&quot;bold&quot;</span><span class="kw">))</span></span>
+<span id="cb79-37"><a href="consensus.html#cb79-37" tabindex="-1"></a></span>
+<span id="cb79-38"><a href="consensus.html#cb79-38" tabindex="-1"></a><span class="ex">ggsave</span><span class="er">(</span><span class="ex">file.path</span><span class="er">(</span><span class="ex">fig_dir,</span> <span class="st">&quot;f_measure_ensemble_boxplot.pdf&quot;</span><span class="kw">)</span><span class="ex">,</span> p2, width = 8, height = 6<span class="kw">)</span></span>
+<span id="cb79-39"><a href="consensus.html#cb79-39" tabindex="-1"></a></span>
+<span id="cb79-40"><a href="consensus.html#cb79-40" tabindex="-1"></a><span class="ex">top_n</span> <span class="op">&lt;</span>- 10</span>
+<span id="cb79-41"><a href="consensus.html#cb79-41" tabindex="-1"></a></span>
+<span id="cb79-42"><a href="consensus.html#cb79-42" tabindex="-1"></a><span class="fu">df</span> <span class="op">&lt;</span>- df %<span class="op">&gt;</span>%</span>
+<span id="cb79-43"><a href="consensus.html#cb79-43" tabindex="-1"></a>  <span class="ex">mutate</span><span class="er">(</span><span class="ex">Strategy2</span> = paste0<span class="er">(</span><span class="ex">Combo,</span> <span class="st">&quot; | &quot;</span>, Level<span class="kw">))</span></span>
+<span id="cb79-44"><a href="consensus.html#cb79-44" tabindex="-1"></a></span>
+<span id="cb79-45"><a href="consensus.html#cb79-45" tabindex="-1"></a><span class="ex">top_strategy</span> <span class="op">&lt;</span>- df %<span class="op">&gt;</span>%</span>
+<span id="cb79-46"><a href="consensus.html#cb79-46" tabindex="-1"></a>  <span class="ex">group_by</span><span class="er">(</span><span class="ex">Strategy2</span><span class="kw">)</span> <span class="ex">%</span><span class="op">&gt;</span>%</span>
+<span id="cb79-47"><a href="consensus.html#cb79-47" tabindex="-1"></a>  <span class="ex">summarise</span><span class="er">(</span><span class="ex">mean_F1</span> = mean<span class="er">(</span><span class="ex">F_measure,</span> na.rm = TRUE<span class="kw">)</span><span class="ex">,</span> .groups = <span class="st">&quot;drop&quot;</span><span class="kw">)</span> <span class="ex">%</span><span class="op">&gt;</span>%</span>
+<span id="cb79-48"><a href="consensus.html#cb79-48" tabindex="-1"></a>  <span class="ex">arrange</span><span class="er">(</span><span class="ex">desc</span><span class="er">(</span><span class="ex">mean_F1</span><span class="kw">))</span> <span class="ex">%</span><span class="op">&gt;</span>%</span>
+<span id="cb79-49"><a href="consensus.html#cb79-49" tabindex="-1"></a>  <span class="ex">slice_head</span><span class="er">(</span><span class="ex">n</span> = top_n<span class="kw">)</span> <span class="ex">%</span><span class="op">&gt;</span>%</span>
+<span id="cb79-50"><a href="consensus.html#cb79-50" tabindex="-1"></a>  <span class="ex">pull</span><span class="er">(</span><span class="ex">Strategy2</span><span class="kw">)</span></span>
+<span id="cb79-51"><a href="consensus.html#cb79-51" tabindex="-1"></a></span>
+<span id="cb79-52"><a href="consensus.html#cb79-52" tabindex="-1"></a><span class="ex">plot_df</span> <span class="op">&lt;</span>- df %<span class="op">&gt;</span>%</span>
+<span id="cb79-53"><a href="consensus.html#cb79-53" tabindex="-1"></a>  <span class="ex">filter</span><span class="er">(</span><span class="ex">Strategy2</span> %in% top_strategy<span class="kw">)</span> <span class="ex">%</span><span class="op">&gt;</span>%</span>
+<span id="cb79-54"><a href="consensus.html#cb79-54" tabindex="-1"></a>  <span class="ex">mutate</span><span class="er">(</span><span class="ex">Strategy2</span> = factor<span class="er">(</span><span class="ex">Strategy2,</span> levels = rev<span class="er">(</span><span class="ex">top_strategy</span><span class="kw">)))</span> <span class="ex">%</span><span class="op">&gt;</span>%</span>
+<span id="cb79-55"><a href="consensus.html#cb79-55" tabindex="-1"></a>  <span class="cf">select</span><span class="kw">(</span><span class="ex">Sample,</span> Strategy2, Precision, Sensitivity, F_measure<span class="kw">)</span> <span class="ex">%</span><span class="op">&gt;</span>%</span>
+<span id="cb79-56"><a href="consensus.html#cb79-56" tabindex="-1"></a>  <span class="ex">pivot_longer</span><span class="er">(</span><span class="ex">cols</span> = c<span class="er">(</span><span class="ex">Precision,</span> Sensitivity, F_measure<span class="kw">)</span><span class="ex">,</span> names_to = <span class="st">&quot;Metric&quot;</span>, values_to = <span class="st">&quot;Value&quot;</span><span class="kw">)</span> <span class="ex">%</span><span class="op">&gt;</span>%</span>
+<span id="cb79-57"><a href="consensus.html#cb79-57" tabindex="-1"></a>  <span class="ex">mutate</span><span class="er">(</span></span>
+<span id="cb79-58"><a href="consensus.html#cb79-58" tabindex="-1"></a>    <span class="ex">Metric</span> = recode<span class="er">(</span><span class="ex">Metric,</span> Sensitivity = <span class="st">&quot;Recall&quot;</span>, F_measure = <span class="st">&quot;F-measure&quot;</span><span class="kw">)</span><span class="ex">,</span></span>
+<span id="cb79-59"><a href="consensus.html#cb79-59" tabindex="-1"></a>    <span class="ex">Metric</span> = factor<span class="er">(</span><span class="ex">Metric,</span> levels = c<span class="er">(</span><span class="st">&quot;Precision&quot;</span><span class="ex">,</span> <span class="st">&quot;Recall&quot;</span>, <span class="st">&quot;F-measure&quot;</span><span class="kw">))</span></span>
+<span id="cb79-60"><a href="consensus.html#cb79-60" tabindex="-1"></a>  <span class="kw">)</span></span>
+<span id="cb79-61"><a href="consensus.html#cb79-61" tabindex="-1"></a></span>
+<span id="cb79-62"><a href="consensus.html#cb79-62" tabindex="-1"></a><span class="ex">p</span> <span class="op">&lt;</span>- ggplot<span class="er">(</span><span class="ex">plot_df,</span> aes<span class="er">(</span><span class="ex">x</span> = Strategy2, y = Value, fill = Strategy2<span class="kw">))</span> <span class="ex">+</span></span>
+<span id="cb79-63"><a href="consensus.html#cb79-63" tabindex="-1"></a>  <span class="ex">geom_boxplot</span><span class="er">(</span><span class="ex">alpha</span> = 0.6, outlier.shape = NA<span class="kw">)</span> <span class="ex">+</span></span>
+<span id="cb79-64"><a href="consensus.html#cb79-64" tabindex="-1"></a>  <span class="ex">geom_jitter</span><span class="er">(</span><span class="ex">width</span> = 0.15, size = 1.3, alpha = 0.45<span class="kw">)</span> <span class="ex">+</span></span>
+<span id="cb79-65"><a href="consensus.html#cb79-65" tabindex="-1"></a>  <span class="ex">facet_wrap</span><span class="er">(</span><span class="ex">~Metric,</span> nrow = 1<span class="kw">)</span> <span class="ex">+</span></span>
+<span id="cb79-66"><a href="consensus.html#cb79-66" tabindex="-1"></a>  <span class="fu">coord_flip()</span> <span class="ex">+</span></span>
+<span id="cb79-67"><a href="consensus.html#cb79-67" tabindex="-1"></a>  <span class="fu">scale_fill_npg()</span> <span class="ex">+</span></span>
+<span id="cb79-68"><a href="consensus.html#cb79-68" tabindex="-1"></a>  <span class="fu">theme_classic()</span> <span class="ex">+</span></span>
+<span id="cb79-69"><a href="consensus.html#cb79-69" tabindex="-1"></a>  <span class="ex">labs</span><span class="er">(</span><span class="ex">title</span> = <span class="st">&quot;Top Ensemble Strategies&quot;</span>, x = NULL, y = NULL<span class="kw">)</span> <span class="ex">+</span></span>
+<span id="cb79-70"><a href="consensus.html#cb79-70" tabindex="-1"></a>  <span class="ex">theme</span><span class="er">(</span></span>
+<span id="cb79-71"><a href="consensus.html#cb79-71" tabindex="-1"></a>    <span class="ex">legend.position</span> = <span class="st">&quot;none&quot;</span>,</span>
+<span id="cb79-72"><a href="consensus.html#cb79-72" tabindex="-1"></a>    <span class="ex">axis.text.y</span> = element_text<span class="er">(</span><span class="fu">size</span> = 9<span class="kw">)</span><span class="ex">,</span></span>
+<span id="cb79-73"><a href="consensus.html#cb79-73" tabindex="-1"></a>    <span class="ex">axis.text.x</span> = element_text<span class="er">(</span><span class="fu">size</span> = 10<span class="kw">)</span><span class="ex">,</span></span>
+<span id="cb79-74"><a href="consensus.html#cb79-74" tabindex="-1"></a>    <span class="ex">strip.text</span> = element_text<span class="er">(</span><span class="fu">size</span> = 13, face = <span class="st">&quot;bold&quot;</span><span class="kw">)</span><span class="ex">,</span></span>
+<span id="cb79-75"><a href="consensus.html#cb79-75" tabindex="-1"></a>    <span class="ex">plot.title</span> = element_text<span class="er">(</span><span class="fu">size</span> = 15, face = <span class="st">&quot;bold&quot;</span><span class="kw">)</span></span>
+<span id="cb79-76"><a href="consensus.html#cb79-76" tabindex="-1"></a>  <span class="kw">)</span></span>
+<span id="cb79-77"><a href="consensus.html#cb79-77" tabindex="-1"></a></span>
+<span id="cb79-78"><a href="consensus.html#cb79-78" tabindex="-1"></a><span class="ex">ggsave</span><span class="er">(</span><span class="ex">file.path</span><span class="er">(</span><span class="ex">fig_dir,</span> <span class="st">&quot;top_ensemble_strategy_precision_recall_f1.pdf&quot;</span><span class="kw">)</span><span class="ex">,</span> p, width = 13, height = 7<span class="kw">)</span></span></code></pre></div>
+</details>
+<div class="figure" style="text-align: center"><span style="display:block;" id="fig:unnamed-chunk-87"></span>
+<img src="results/fig4/4b.f_measure_ensemble_boxplot.png" alt="Comparison of overall F1-score across 34 consensus strategies evaluated using mutations derived from matched bulk WES as the truth sets. Consensus strategies were generated by combining six representative callers, with each strategy requiring support from at least two of the three primary callers (Monopogen, Strelka2, and FreeBayes)." width="80%" />
+<p class="caption">
+Figure 5.1: Comparison of overall F1-score across 34 consensus strategies evaluated using mutations derived from matched bulk WES as the truth sets. Consensus strategies were generated by combining six representative callers, with each strategy requiring support from at least two of the three primary callers (Monopogen, Strelka2, and FreeBayes).
+</p>
+</div>
+<div class="figure" style="text-align: center"><span style="display:block;" id="fig:unnamed-chunk-88"></span>
+<img src="results/fig4/4c.top_ensemble_strategy_precision_recall_f1.png" alt="Boxplot showing the ten best-performing consensus strategies ranked by F1-score. " width="100%" />
+<p class="caption">
+Figure 5.2: Boxplot showing the ten best-performing consensus strategies ranked by F1-score.
+</p>
+</div>
+<div class="sourceCode" id="cb80"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb80-1"><a href="consensus.html#cb80-1" tabindex="-1"></a><span class="fu">df</span> <span class="op">&lt;</span>- read.table<span class="er">(</span><span class="ex">file.path</span><span class="er">(</span><span class="ex">base_dir,</span> <span class="st">&quot;rtg_summary_all.tsv&quot;</span><span class="kw">)</span><span class="ex">,</span> header = TRUE, sep = <span class="st">&quot;\t&quot;</span>, stringsAsFactors = FALSE, check.names = FALSE<span class="kw">)</span></span>
+<span id="cb80-2"><a href="consensus.html#cb80-2" tabindex="-1"></a></span>
+<span id="cb80-3"><a href="consensus.html#cb80-3" tabindex="-1"></a><span class="cf">for</span> <span class="kw">(</span><span class="ex">k</span> in c<span class="er">(</span><span class="ex">2,3,4</span><span class="kw">))</span> <span class="kw">{</span></span>
+<span id="cb80-4"><a href="consensus.html#cb80-4" tabindex="-1"></a>  <span class="ex">p</span> <span class="op">&lt;</span>- df %<span class="op">&gt;</span>%</span>
+<span id="cb80-5"><a href="consensus.html#cb80-5" tabindex="-1"></a>    <span class="ex">filter</span><span class="er">(</span><span class="ex">n_tools</span> == k<span class="kw">)</span> <span class="ex">%</span><span class="op">&gt;</span>%</span>
+<span id="cb80-6"><a href="consensus.html#cb80-6" tabindex="-1"></a>    <span class="ex">ggplot</span><span class="er">(</span><span class="ex">aes</span><span class="er">(</span><span class="ex">x</span> = Level, y = F_measure, group = Sample<span class="kw">))</span> <span class="ex">+</span></span>
+<span id="cb80-7"><a href="consensus.html#cb80-7" tabindex="-1"></a>    <span class="ex">geom_line</span><span class="er">(</span><span class="ex">color</span> = <span class="st">&quot;grey70&quot;</span>, alpha = 0.45, linewidth = 0.5<span class="kw">)</span> <span class="ex">+</span></span>
+<span id="cb80-8"><a href="consensus.html#cb80-8" tabindex="-1"></a>    <span class="ex">geom_point</span><span class="er">(</span><span class="ex">aes</span><span class="er">(</span><span class="ex">color</span> = Level<span class="kw">)</span><span class="ex">,</span> size = 1.8, alpha = 0.8<span class="kw">)</span> <span class="ex">+</span></span>
+<span id="cb80-9"><a href="consensus.html#cb80-9" tabindex="-1"></a>    <span class="ex">facet_wrap</span><span class="er">(</span><span class="ex">~</span> Combo, scales = <span class="st">&quot;free_x&quot;</span><span class="kw">)</span> <span class="ex">+</span></span>
+<span id="cb80-10"><a href="consensus.html#cb80-10" tabindex="-1"></a>    <span class="fu">scale_color_npg()</span> <span class="ex">+</span></span>
+<span id="cb80-11"><a href="consensus.html#cb80-11" tabindex="-1"></a>    <span class="fu">theme_classic()</span> <span class="ex">+</span></span>
+<span id="cb80-12"><a href="consensus.html#cb80-12" tabindex="-1"></a>    <span class="ex">labs</span><span class="er">(</span><span class="ex">title</span> = paste0<span class="er">(</span><span class="st">&quot;F1 score across support levels (&quot;</span><span class="ex">,</span> k, <span class="st">&quot; tools)&quot;</span><span class="kw">)</span><span class="ex">,</span> x = <span class="st">&quot;Support level&quot;</span>, y = <span class="st">&quot;F-measure&quot;</span>, color = <span class="st">&quot;Level&quot;</span><span class="kw">)</span> <span class="ex">+</span></span>
+<span id="cb80-13"><a href="consensus.html#cb80-13" tabindex="-1"></a>    <span class="ex">theme</span><span class="er">(</span><span class="ex">axis.text.x</span> = element_text<span class="er">(</span><span class="ex">angle</span> = 45, hjust = 1<span class="kw">)</span><span class="ex">,</span> strip.text = element_text<span class="er">(</span><span class="fu">size</span> = 8<span class="kw">)</span><span class="ex">,</span> legend.position = <span class="st">&quot;right&quot;</span><span class="kw">)</span></span>
+<span id="cb80-14"><a href="consensus.html#cb80-14" tabindex="-1"></a></span>
+<span id="cb80-15"><a href="consensus.html#cb80-15" tabindex="-1"></a>  <span class="ex">ggsave</span><span class="er">(</span><span class="ex">file.path</span><span class="er">(</span><span class="ex">fig_dir,</span> paste0<span class="er">(</span><span class="st">&quot;f_measure_trajectory_&quot;</span><span class="ex">,</span> k, <span class="st">&quot;tools.pdf&quot;</span><span class="kw">))</span><span class="ex">,</span> p, width = 14, height = 10<span class="kw">)</span></span>
+<span id="cb80-16"><a href="consensus.html#cb80-16" tabindex="-1"></a><span class="kw">}</span></span></code></pre></div>
+<div class="figure" style="text-align: center"><span style="display:block;" id="fig:unnamed-chunk-90"></span>
+<img src="results/fig4/f_measure_trajectory_2tools.png" alt="F1-score comparison of two/three/four-tool consensus strategies for 10x Genomics scRNA-seq data." width="100%" /><img src="results/fig4/f_measure_trajectory_3tools.png" alt="F1-score comparison of two/three/four-tool consensus strategies for 10x Genomics scRNA-seq data." width="100%" /><img src="results/fig4/f_measure_trajectory_4tools.png" alt="F1-score comparison of two/three/four-tool consensus strategies for 10x Genomics scRNA-seq data." width="100%" />
+<p class="caption">
+Figure 5.3: F1-score comparison of two/three/four-tool consensus strategies for 10x Genomics scRNA-seq data.
+</p>
+</div>
+
+</div>
+            </section>
+
+          </div>
+        </div>
+      </div>
+<a href="simulations.html" class="navigation navigation-prev navigation-unique" aria-label="Previous page"><i class="fa fa-angle-left"></i></a>
+
+    </div>
+  </div>
+<script src="libs/gitbook-2.6.7/js/app.min.js"></script>
+<script src="libs/gitbook-2.6.7/js/clipboard.min.js"></script>
+<script src="libs/gitbook-2.6.7/js/plugin-search.js"></script>
+<script src="libs/gitbook-2.6.7/js/plugin-sharing.js"></script>
+<script src="libs/gitbook-2.6.7/js/plugin-fontsettings.js"></script>
+<script src="libs/gitbook-2.6.7/js/plugin-bookdown.js"></script>
+<script src="libs/gitbook-2.6.7/js/jquery.highlight.js"></script>
+<script src="libs/gitbook-2.6.7/js/plugin-clipboard.js"></script>
+<script>
+gitbook.require(["gitbook"], function(gitbook) {
+gitbook.start({
+"sharing": false,
+"fontsettings": {
+"theme": "white",
+"family": "sans",
+"size": 2
+},
+"edit": {
+"link": null,
+"text": null
+},
+"history": {
+"link": null,
+"text": null
+},
+"view": {
+"link": null,
+"text": null
+},
+"download": null,
+"search": {
+"engine": "fuse",
+"options": null
+},
+"toc": {
+"collapse": "section"
+}
+});
+});
+</script>
+
+</body>
+
+</html>

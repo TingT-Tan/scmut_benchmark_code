@@ -1,0 +1,12 @@
+book_filename: "scmut-benchmark"
+language:
+  ui:
+    chapter_name: "Chapter "
+rmd_files:
+  - index.Rmd
+  - 01-variant-calling.Rmd
+  - 02-benchmark-evaluation.Rmd
+  - 03-simulations.Rmd
+  - 04-consensus.Rmd
+delete_merged_file: true
+output_dir: "_book"

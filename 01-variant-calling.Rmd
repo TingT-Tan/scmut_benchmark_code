@@ -1,0 +1,4064 @@
+# Variant Calling {#variant-calling}
+
+Variant calling was performed at different analytical resolutions according to the sequencing platform and the capabilities of each tool. For 10x Genomics datasets, variants were identified at the pooled, cell-type, or single-cell level, whereas Smart-seq2 datasets were analyzed at the individual-cell level. Tool-specific preprocessing, calling parameters, filtering procedures, and output processing steps are documented in the following sections.
+
+| Analysis level | Tools |
+|---|---|
+| 10x pooled | GATK; FreeBayes; SAMtools; VarScan2; Strelka2; Monopogen; scSNV; cellsnp-lite |
+| 10x cell type | SComatic; cellsnp-lite; SAMtools; FreeBayes; VarScan2; Strelka2; Monovar |
+| 10x single cell | Monopogen; scSNV; scAllele; cellsnp-lite |
+| Smart-seq2 single cell | GATK; SAMtools; FreeBayes; VarScan2; Strelka2; cellsnp-lite; scAllele; Monovar |
+
+
+## GATK
+
+GATK HaplotypeCaller detects SNVs and indels using local haplotype assembly and probabilistic genotyping.
+
+The workflow included:
+  
+- Preprocessing: Apply `SplitNCigarReads` to RNA-seq BAM files.
+- Variant calling and filtering
+
+**Reference:** [GATK (Genome Research, 2010)](https://gatk.broadinstitute.org/)
+
+
+  
+<details>
+<summary>10x pooled level (germline)</summary>
+  
+**calling:**
+
+```{bash,eval=FALSE}
+REF="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+IN_DIR="/mnt/storage/tantingting/scmut/bam/2_melanoma_scRNA"
+OUT_DIR="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/hap_pool"
+
+JAVA_OPTS="-Xmx24g"
+THREADS=16
+
+mkdir -p "$OUT_DIR"
+
+# Iterate over all sample directories
+for sample_path in "${IN_DIR}"/*_SRR*; do
+
+    [[ -d "$sample_path" ]] || continue
+
+    sample=$(basename "$sample_path")
+
+    # Input Cell Ranger BAM
+    BAM="${sample_path}/outs/possorted_genome_bam.bam"
+    [[ -f "$BAM" ]] || continue
+
+    # Output files
+    SAMPLE_OUT="${OUT_DIR}/${sample}"
+    mkdir -p "$SAMPLE_OUT"
+
+    SPLIT_BAM="${SAMPLE_OUT}/${sample}.split.bam"
+    VCF="${SAMPLE_OUT}/${sample}.vcf.gz"
+
+    echo "Processing: $sample"
+
+    # Step 1: SplitNCigarReads
+    if [[ ! -f "$SPLIT_BAM" ]]; then
+        gatk --java-options "$JAVA_OPTS" SplitNCigarReads \
+            -R "$REF" \
+            -I "$BAM" \
+            -O "$SPLIT_BAM" \
+            --create-output-bam-index true || continue
+    fi
+
+    # Step 2: HaplotypeCaller
+    gatk --java-options "$JAVA_OPTS" HaplotypeCaller \
+        -R "$REF" \
+        -I "$SPLIT_BAM" \
+        -O "$VCF" \
+        --native-pair-hmm-threads "$THREADS" \
+        --standard-min-confidence-threshold-for-calling 30.0
+
+done
+```
+
+**filtering:**
+
+```{bash,eval=FALSE}
+SC_BASE=$1
+REF=/home/tantingting/scmut/ref/bwa_ref/genome.fa
+chr_list="chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY,chrM"
+
+echo "======================================"
+echo "Input SC directory: ${SC_BASE}"
+echo "======================================"
+mkdir -p ${SC_BASE}/filter
+
+for SAMPLE_DIR in "${SC_BASE}"/*; do
+
+	[[ $(basename "$SAMPLE_DIR") == "filter" ]] && continue
+
+    [ -d "${SAMPLE_DIR}" ] || continue
+
+    sample=$(basename "${SAMPLE_DIR}")
+    raw_vcf="${SAMPLE_DIR}/${sample}.vcf.gz"
+	
+
+    pass_vcf="${SC_BASE}/filter/${sample}_PASS.vcf.gz"
+
+    if [[ ! -f "$raw_vcf" ]]; then
+        echo "[WARN] Skip $sample: VCF not found"
+        continue
+    fi
+
+    if [[ -f "$pass_vcf" && -f "${pass_vcf}.tbi" ]]; then
+        echo "[SKIP FILTER] $sample"
+        echo "[INFO] Kept sites: $(bcftools view -H "$pass_vcf" | wc -l)"
+        continue
+    fi
+
+    echo "[FILTER] $sample"
+
+    tmp_dir="${SAMPLE_DIR}/tmp_filter"
+    mkdir -p "$tmp_dir"
+
+    norm_vcf="${tmp_dir}/${sample}.norm.vcf.gz"
+
+    #######################
+    # Step 1: chr filter + normalize
+    #######################
+    bcftools view -r "$chr_list" "$raw_vcf" -Oz -o "${tmp_dir}/${sample}.chr.vcf.gz"
+    bcftools norm -f "$REF" -m -both "${tmp_dir}/${sample}.chr.vcf.gz" -Oz -o "$norm_vcf"
+    tabix -f -p vcf "$norm_vcf"
+
+    #######################
+    # Step 2: SNP / INDEL split
+    #######################
+    snp_vcf="${tmp_dir}/snp.vcf.gz"
+    indel_vcf="${tmp_dir}/indel.vcf.gz"
+
+    gatk SelectVariants -R "$REF" -V "$norm_vcf" -select-type SNP -O "$snp_vcf"
+    gatk SelectVariants -R "$REF" -V "$norm_vcf" -select-type INDEL -O "$indel_vcf"
+
+    #######################
+    # Step 3: filtering
+    #######################
+    snp_f="${tmp_dir}/snp.f.vcf.gz"
+    indel_f="${tmp_dir}/indel.f.vcf.gz"
+
+    gatk VariantFiltration -R "$REF" -V "$snp_vcf" \
+        -filter "QD < 2.0" --filter-name "QD2" \
+        -filter "QUAL < 30.0" --filter-name "QUAL30" \
+        -filter "SOR > 3.0" --filter-name "SOR3" \
+        -filter "FS > 60.0" --filter-name "FS60" \
+        -filter "MQ < 40.0" --filter-name "MQ40" \
+        -filter "(vc.hasAttribute('MQRankSum') && MQRankSum < -12.5)" --filter-name "MQRS12.5" \
+        -filter "(vc.hasAttribute('ReadPosRankSum') && ReadPosRankSum < -8.0)" --filter-name "RPRS8" \
+        -O "$snp_f"
+
+    gatk VariantFiltration -R "$REF" -V "$indel_vcf" \
+        -filter "QD < 2.0" --filter-name "QD2" \
+        -filter "QUAL < 30.0" --filter-name "QUAL30" \
+        -filter "FS > 200.0" --filter-name "FS200" \
+        -filter "(vc.hasAttribute('ReadPosRankSum') && ReadPosRankSum < -20.0)" --filter-name "RPRS20" \
+        -O "$indel_f"
+
+    #######################
+    # Step 4: PASS + DP filter
+    #######################
+    snp_pass="${tmp_dir}/snp.pass.vcf.gz"
+    indel_pass="${tmp_dir}/indel.pass.vcf.gz"
+
+    bcftools view -f PASS -i 'FMT/DP[0]>10' "$snp_f" -Oz -o "$snp_pass"
+    tabix -f -p vcf "$snp_pass"
+
+    bcftools view -f PASS -i 'FMT/DP[0]>15' "$indel_f" -Oz -o "$indel_pass"
+    tabix -f -p vcf "$indel_pass"
+
+    #######################
+    # Step 5: merge + final chr filter + output
+    #######################
+    merge_vcf="${tmp_dir}/merge.vcf.gz"
+
+    bcftools concat -a "$snp_pass" "$indel_pass" -Oz -o "$merge_vcf"
+	bcftools sort "$merge_vcf" -Oz -o "$pass_vcf"
+	tabix -f -p vcf "$pass_vcf"
+
+    rm -rf "$tmp_dir"
+
+    echo "[INFO] Final VCF: $pass_vcf"
+    echo "[INFO] Kept sites: $(bcftools view -H "$pass_vcf" | wc -l)"
+
+done
+
+echo "======================================"
+echo "ALL DONE"
+echo "======================================"
+```
+
+
+</details>
+  
+<details>
+<summary>10x pooled level (somatic)</summary>
+
+only for dataset1
+
+```{bash,eval=FALSE}
+export PATH=/home/tantingting/scmut/tools:$PATH
+REF_FA=/home/tantingting/scmut/ref/bwa_ref/genome.fa
+BAM_DIR=/mnt/storage/tantingting/scmut/bam/1_cSCC_scRNA
+TUMOR_SPLIT_DIR=/mnt/storage/tantingting/scmut/vcf/1_cSCC_scRNA/hap_pool
+OUT_DIR=/mnt/storage/tantingting/scmut/vcf/1_cSCC_scRNA/mutect2_pool
+PON=/home/tantingting/scmut/ref/gatk_ref/gatk/1000g_pon.hg38.vcf.gz
+GERMLINE=/home/tantingting/scmut/ref/gatk_ref/gatk/af-only-gnomad.hg38.vcf.gz
+samples=(P4 P5 P6 P7 P9 P10)
+mkdir -p "$OUT_DIR"
+
+for s in "${samples[@]}"; do
+
+    tumor="${s}_cSCC"
+    normal="${s}_normal"
+    tumor_bam="${TUMOR_SPLIT_DIR}/${tumor}/${tumor}.split.bam"
+    normal_bam="${BAM_DIR}/${normal}/outs/possorted_genome_bam.bam"
+    normal_split="${OUT_DIR}/${normal}.split.bam"
+    raw_vcf="${OUT_DIR}/${tumor}_mutect2_raw.vcf.gz"
+    filter_vcf="${OUT_DIR}/${tumor}_mutect2_PASS.vcf.gz"
+
+    echo "========== ${tumor} =========="
+
+    # normal RNA: SplitNCigarReads
+    if [[ ! -f "$normal_split" ]]; then
+        echo "[SplitNCigarReads] ${normal}"
+
+        gatk SplitNCigarReads \
+            -R "$REF_FA" \
+            -I "$normal_bam" \
+            -O "$normal_split" \
+            --create-output-bam-index true
+    fi
+
+    # get SM from BAM header
+    normal_sm=$(samtools view -H "$normal_split" |
+        awk -F'\t' '$1=="@RG"{for(i=1;i<=NF;i++) if($i~/^SM:/){sub(/^SM:/,"",$i); print $i; exit}}')
+
+    echo "Tumor : $tumor_bam"
+    echo "Normal: $normal_split"
+    echo "Normal SM: $normal_sm"
+
+    # Mutect2
+    memusg -t gatk Mutect2 \
+        -R "$REF_FA" \
+        -I "$tumor_bam" \
+        -I "$normal_split" \
+        -normal "$normal_sm" \
+        --germline-resource "$GERMLINE" \
+        --panel-of-normals "$PON" \
+        --native-pair-hmm-threads 16 \
+        -O "$raw_vcf"
+
+    # Filter
+	gatk FilterMutectCalls \
+		-R "$REF_FA" \
+		-V "$raw_vcf" \
+		-O "$filter_vcf"
+
+	FINAL="${OUT_DIR}/${tumor}_mutect2_PASS_norm.vcf.gz"
+
+	bcftools view \
+		-r chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY,chrM \
+		-f PASS "$filter_vcf" -Ou |
+	bcftools norm -f "$REF_FA" -m -both -Oz -o "$FINAL"
+
+	bcftools index -f -t "$FINAL"
+
+    echo "[DONE] ${tumor}"
+done
+
+## extract sample
+WES_BASE=/mnt/storage/tantingting/scmut/vcf/1_cSCC_scRNA/mutect2_pool
+
+for s in P4 P5 P6 P7 P9 P10; do
+    VCF=$(find "$WES_BASE" -name "${s}_cSCC_mutect2_PASS_norm.vcf.gz" | head -1)
+    TUMOR=$(bcftools query -l "$VCF" | head -1)
+    OUT="${WES_BASE}/${s}_cSCC_mutect2_tumor_only.vcf.gz"
+
+    echo "$s : $TUMOR"
+
+    bcftools view -s "$TUMOR" "$VCF" -Oz -o "$OUT"
+    bcftools index -f -t "$OUT"
+done
+```
+
+
+
+</details>
+  
+<details>
+<summary>Smart-seq2</summary>
+```{bash,eval=FALSE}
+export PATH=/home/tantingting/scmut/tools:$PATH
+
+dataset="$1"
+batch_file="$2"
+
+ref_genome="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+bam_dir="/mnt/storage/tantingting/scmut_smart/bam/${dataset}/md_bam"
+out_base="/mnt/storage/tantingting/scmut_smart/vcf/${dataset}/hap"
+filter_dir="${out_base}/filter"
+chr_list="chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY,chrM"
+
+mkdir -p "$out_base" "$filter_dir"
+
+while read -r sample; do
+    [[ -z "$sample" || "$sample" =~ ^# ]] && continue
+
+    bam="${bam_dir}/${sample}_sortmd.bam"
+    split_bam="${out_base}/${sample}.split.bam"
+    raw_vcf="${out_base}/${sample}.hap.vcf.gz"
+    pass_vcf="${filter_dir}/${sample}.hap_PASS.vcf.gz"
+    tmp_dir="${filter_dir}/tmp_${sample}"
+    mkdir -p "$tmp_dir"
+
+    echo "========== ${dataset} | ${sample} =========="
+    [[ ! -f "$bam" ]] && echo "[WARN] Missing $bam" && rm -rf "$tmp_dir" && continue
+
+    if [[ ! -f "$raw_vcf" || ! -f "${raw_vcf}.tbi" ]]; then
+        echo "[CALL] $sample"
+        [[ ! -f "$split_bam" || ! -f "${split_bam}.bai" ]] && gatk SplitNCigarReads -R "$ref_genome" -I "$bam" -O "$split_bam" --create-output-bam-index true
+        gatk HaplotypeCaller -R "$ref_genome" -I "$split_bam" -O "$raw_vcf" --native-pair-hmm-threads 16 --standard-min-confidence-threshold-for-calling 30.0
+        tabix -f -p vcf "$raw_vcf"
+    else
+        echo "[SKIP CALL] $sample"
+    fi
+
+    if [[ ! -f "$pass_vcf" || ! -f "${pass_vcf}.tbi" ]]; then
+        echo "[FILTER] $sample"
+
+        norm_vcf="${tmp_dir}/${sample}.norm.vcf.gz"
+        snp_vcf="${tmp_dir}/${sample}.snp.vcf.gz"
+        indel_vcf="${tmp_dir}/${sample}.indel.vcf.gz"
+        snp_filter="${tmp_dir}/${sample}.snp.filtered.vcf.gz"
+        indel_filter="${tmp_dir}/${sample}.indel.filtered.vcf.gz"
+        snp_pass="${tmp_dir}/${sample}.snp.pass.vcf.gz"
+        indel_pass="${tmp_dir}/${sample}.indel.pass.vcf.gz"
+        merge_vcf="${tmp_dir}/${sample}.merge.vcf.gz"
+
+        bcftools norm -f "$ref_genome" -m -both "$raw_vcf" -Oz -o "$norm_vcf"
+        tabix -f -p vcf "$norm_vcf"
+
+        gatk SelectVariants -R "$ref_genome" -V "$norm_vcf" -select-type SNP -O "$snp_vcf"
+        gatk SelectVariants -R "$ref_genome" -V "$norm_vcf" -select-type INDEL -O "$indel_vcf"
+
+        gatk VariantFiltration -R "$ref_genome" -V "$snp_vcf" -filter "QD < 2.0" --filter-name "QD2" -filter "QUAL < 30.0" --filter-name "QUAL30" -filter "SOR > 3.0" --filter-name "SOR3" -filter "FS > 60.0" --filter-name "FS60" -filter "MQ < 40.0" --filter-name "MQ40" -filter "(vc.hasAttribute('MQRankSum') && MQRankSum < -12.5)" --filter-name "MQRS12.5" -filter "(vc.hasAttribute('ReadPosRankSum') && ReadPosRankSum < -8.0)" --filter-name "RPRS8" -O "$snp_filter"
+        
+		gatk VariantFiltration -R "$ref_genome" -V "$indel_vcf" -filter "QD < 2.0" --filter-name "QD2" -filter "QUAL < 30.0" --filter-name "QUAL30" -filter "FS > 200.0" --filter-name "FS200" -filter "(vc.hasAttribute('ReadPosRankSum') && ReadPosRankSum < -20.0)" --filter-name "RPRS20" -O "$indel_filter"
+
+
+        bcftools view -f PASS -i 'FMT/DP[0]>10' "$snp_filter" -Oz -o "$snp_pass"
+        tabix -f -p vcf "$snp_pass"
+
+        bcftools view -f PASS -i 'FMT/DP[0]>15' "$indel_filter" -Oz -o "$indel_pass"
+        tabix -f -p vcf "$indel_pass"
+
+        bcftools concat -a "$snp_pass" "$indel_pass" -Oz -o "$merge_vcf"
+        tabix -f -p vcf "$merge_vcf"
+
+        bcftools view -r "$chr_list" "$merge_vcf" -Oz -o "$pass_vcf"
+        tabix -f -p vcf "$pass_vcf"
+
+        rm -rf "$tmp_dir"
+        echo "[INFO] Final VCF: $pass_vcf"
+        echo "[INFO] Kept sites: $(bcftools view -H "$pass_vcf" | wc -l)"
+    else
+        echo "[SKIP FILTER] $sample"
+        echo "[INFO] Kept sites: $(bcftools view -H "$pass_vcf" | wc -l)"
+    fi
+
+    echo "[DONE] $sample"
+
+done < "$batch_file"
+```
+
+## Monopogen
+
+Monopogen detects germline and somatic variants from single-cell sequencing data using haplotype phasing and linkage disequilibrium information from reference panels.
+
+The workflow included:
+  
+- Preprocessing: Prepare BAM files and genomic regions.
+- Germline calling: Identify variants using population reference panels.
+- Somatic calling: Detect cell-level somatic variants using the Monopogen workflow.
+
+**Reference:** [Monopogen (Nature Biotechnology, 2024)](https://github.com/KChen-lab/Monopogen)
+
+
+<details>
+<summary>10x pooled level (germline)</summary>
+  
+**calling:**
+
+```{python,eval=FALSE}
+import pysam
+import pandas as pd
+from collections import defaultdict
+import gzip
+
+def count_barcode_reads_from_bam(bam_path, barcodes_path, output_path):
+    """
+    Count reads associated with filtered cell barcodes from a BAM file.
+
+    Parameters:
+        bam_path: Path to the Cell Ranger BAM file.
+        barcodes_path: Path to filtered barcodes.tsv.gz.
+        output_path: Path to the output CSV file.
+    """
+
+    # 1. Load filtered barcodes
+    with gzip.open(barcodes_path, 'rt') as f:
+        filtered_barcodes = {line.strip().split('-')[0] for line in f}
+
+    # 2. Initialize counters
+    barcode_counter = defaultdict(int)
+    total_reads = 0
+    processed_reads = 0
+
+    # 3. Iterate over BAM reads
+    with pysam.AlignmentFile(bam_path, "rb") as bam:
+        print(f"Processing BAM file: {bam_path}")
+
+        for read in bam:
+            total_reads += 1
+
+            # Display progress
+            if total_reads % 10_000_000 == 0:
+                print(f"Processed {total_reads/1_000_000:.1f}M reads...")
+
+            # Extract cell barcode
+            if read.has_tag('CB'):
+                cb = read.get_tag('CB').split('-')[0]
+
+                # Count reads matching filtered barcodes
+                if cb in filtered_barcodes:
+                    barcode_counter[cb] += 1
+                    processed_reads += 1
+
+    # 4. Save results
+    results = [
+        {'barcode': bc, 'reads': count}
+        for bc, count in barcode_counter.items()
+    ]
+    pd.DataFrame(results).to_csv(output_path, index=False)
+
+    print(f"Completed! Total reads: {total_reads}")
+    print(f"Matched filtered barcodes: {len(results)}")
+    print(f"Output saved to: {output_path}")
+
+# Dataset 2: Melanoma scRNA-seq
+count_barcode_reads_from_bam(
+    bam_path='/mnt/storage/tantingting/scmut/bam/2_melanoma_scRNA/Acral1_SRR20791206/outs/possorted_genome_bam.bam',
+    barcodes_path='/mnt/storage/tantingting/scmut/bam/2_melanoma_scRNA/Acral1_SRR20791206/outs/filtered_feature_bc_matrix/barcodes.tsv.gz',
+    output_path='/mnt/storage/tantingting/scmut/bam/2_melanoma_scRNA/Acral1_SRR20791206/outs/Acral1_SRR20791206_barcode_reads_orig.csv'
+)
+
+
+# Append "-1" to barcodes for downstream somatic variant calling
+
+awk -F',' 'BEGIN{OFS=","} NR==1{print $1,$2; next} {print $1"-1",$2}' \
+    /mnt/storage/tantingting/scmut/bam/2_melanoma_scRNA/Acral1_SRR20791206/outs/Acral1_SRR20791206_barcode_reads_orig.csv \
+    > /mnt/storage/tantingting/scmut/bam/2_melanoma_scRNA/Acral1_SRR20791206/outs/Acral1_SRR20791206_barcode_reads_add1.csv
+```
+
+```{bash,eval=FALSE}
+#!/bin/bash
+path="/home/tantingting/scmut/tools/Monopogen"
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${path}/apps
+export PATH=/home/tantingting/scmut/tools:$PATH
+
+# Sample list (Dataset 2: melanoma scRNA-seq)
+samples=(
+    "Acral1_SRR20791206"
+    "Acral2_SRR20791205"
+    "Acral3post_SRR20791202"
+    "Acral3pre_SRR20791203"
+    "Acral4_SRR20791201"
+    "Cutaneous1_SRR20791198"
+    "Cutaneous1Lym_SRR20791196"
+    "Cutaneous2_SRR20791197"
+)
+
+# Reference files
+ref_genome="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+region_lst="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/monopo/region.lst"
+panel_path="/home/tantingting/scmut/ref/1000g_panel/"
+
+for sample in "${samples[@]}"; do
+    echo "===== Running sample: $sample ====="
+    outdir="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/monopo/${sample}"
+    bam_lst="${outdir}/bam.lst"
+    barcode_csv="/mnt/storage/tantingting/scmut/bam/2_melanoma_scRNA/${sample}/outs/${sample}_barcode_reads_add1.csv"
+    mkdir -p ${outdir}
+
+    # Step 1: preProcess
+    memusg -t -w 300 \
+    python ${path}/src/Monopogen.py preProcess \
+        -b ${bam_lst} \
+        -o ${outdir} \
+        -a ${path}/apps \
+        -t 16
+
+    echo "===== ${sample} step1 done ====="
+
+    # Step 2: germline
+    memusg -t -w 300 \
+    python ${path}/src/Monopogen.py germline \
+        -a ${path}/apps \
+        -t 16 \
+        -s all \
+        -p ${panel_path} \
+        -r ${region_lst} \
+        -g ${ref_genome} \
+        -o ${outdir}
+    echo "===== ${sample} step2 done ====="
+
+done
+```
+
+
+**filtering:**
+
+```{python,eval=FALSE}
+SC_BASE=$1
+
+echo "======================================"
+echo "Input directory: ${SC_BASE}"
+echo "======================================"
+
+mkdir -p "${SC_BASE}/pool_filter"
+
+for SAMPLE_DIR in "${SC_BASE}"/*; do
+
+    [ -d "$SAMPLE_DIR" ] || continue
+
+    sample=$(basename "$SAMPLE_DIR")
+
+    germline_dir="${SAMPLE_DIR}/germline"
+
+    if [[ ! -d "$germline_dir" ]]; then
+        echo "[WARN] Skip ${sample}: germline directory not found"
+        continue
+    fi
+
+    echo
+    echo "===== Processing ${sample} ====="
+
+    GL_ALL="${SC_BASE}/pool_filter/${sample}.gl.all.vcf.gz"
+    PHASED_ALL="${SC_BASE}/pool_filter/${sample}.phased.all.vcf.gz"
+    GL_PASS="${SC_BASE}/pool_filter/${sample}.gl.depth_pass.vcf.gz"
+    KEEP_KEYS="${SC_BASE}/pool_filter/${sample}.keep.keys.txt"
+    FINAL="${SC_BASE}/pool_filter/${sample}_PASS.vcf.gz"
+
+    ####################################
+    # Step1: concat all chromosomes
+    ####################################
+
+    bcftools concat -a -Oz -o "$GL_ALL" \
+        $(find "$germline_dir" -maxdepth 1 -name "chr*.gl.vcf.gz" | sort -V)
+
+    bcftools index -t "$GL_ALL"
+
+    bcftools concat -a -Oz -o "$PHASED_ALL" \
+        $(find "$germline_dir" -maxdepth 1 -name "chr*.phased.vcf.gz" | sort -V)
+
+    bcftools index -t "$PHASED_ALL"
+
+    echo "[INFO] concat finished"
+
+    ####################################
+    # Step2: depth filter on GL
+    ####################################
+
+    bcftools view -i '
+        (TYPE="snp"  && INFO/DP>10) ||
+        (TYPE!="snp" && INFO/DP>15)
+    ' "$GL_ALL" \
+      -Oz -o "$GL_PASS"
+
+    bcftools index -t "$GL_PASS"
+
+    ####################################
+    # Step3: extract passing sites
+    ####################################
+
+    bcftools query \
+        -f '%CHROM:%POS:%REF:%ALT\n' \
+        "$GL_PASS" | sort -u > "$KEEP_KEYS"
+
+    echo "[INFO] GL depth-pass sites: $(wc -l < "$KEEP_KEYS")"
+
+    ####################################
+    # Step4: filter phased VCF
+    ####################################
+
+    bcftools view \
+        -T <(
+            awk -F: 'BEGIN{OFS="\t"}{
+                print $1,$2,$2,$3,$4
+            }' "$KEEP_KEYS"
+        ) \
+        "$PHASED_ALL" | \
+    bcftools view -i '
+        GT!="0/0" &&
+        GT!="0|0" &&
+        GT!="./." &&
+        GT!=".|."
+    ' \
+        -Oz -o "$FINAL"
+
+    bcftools index -t "$FINAL"
+
+    ####################################
+    # Cleanup
+    ####################################
+
+    rm -f "$GL_ALL" "$GL_ALL.tbi"
+    rm -f "$PHASED_ALL" "$PHASED_ALL.tbi"
+    rm -f "$GL_PASS" "$GL_PASS.tbi"
+
+    echo "[INFO] Final VCF: $FINAL"
+    echo "[INFO] Kept sites: $(bcftools view -H "$FINAL" | wc -l)"
+
+done
+
+echo
+echo "======================================"
+echo "ALL DONE"
+echo "======================================"
+```
+
+</details>
+  
+<details>
+<summary>10x single-cell level (somatic)</summary>
+  
+**calling:**
+
+```{bash,eval=FALSE}
+#!/bin/bash
+path="/home/tantingting/scmut/tools/Monopogen"
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${path}/apps
+export PATH=/home/tantingting/scmut/tools:$PATH
+
+# Sample list (Dataset 2: melanoma scRNA-seq)
+samples=(
+    "Acral1_SRR20791206"
+    "Acral2_SRR20791205"
+    "Acral3post_SRR20791202"
+    "Acral3pre_SRR20791203"
+    "Acral4_SRR20791201"
+    "Cutaneous1_SRR20791198"
+    "Cutaneous1Lym_SRR20791196"
+    "Cutaneous2_SRR20791197"
+)
+
+# Reference files
+ref_genome="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+region_lst="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/monopo/region.lst"
+panel_path="/home/tantingting/scmut/ref/1000g_panel/"
+
+for sample in "${samples[@]}"; do
+    echo "===== Running sample: $sample ====="
+
+    outdir="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/monopo/${sample}"
+    barcode_csv="/mnt/storage/tantingting/scmut/bam/2_melanoma_scRNA/${sample}/outs/${sample}_barcode_reads_add1.csv"
+
+    memusg -t bash -c "
+        python ${path}/src/Monopogen.py somatic \
+            -a ${path}/apps -t 16 -s featureInfo -k 1 \
+            -r ${region_lst} \
+            -i ${outdir} \
+            -l ${barcode_csv} \
+            -g ${ref_genome}
+
+        echo '===== ${sample} step3.1 done ====='
+
+        python ${path}/src/Monopogen.py somatic \
+            -a ${path}/apps -t 16 -s cellScan -k 1 \
+            -r ${region_lst} \
+            -i ${outdir} \
+            -l ${barcode_csv} \
+            -g ${ref_genome}
+
+        echo '===== ${sample} step3.2 done ====='
+
+        python ${path}/src/Monopogen.py somatic \
+            -a ${path}/apps -t 16 -s LDrefinement -k 1 \
+            -r ${region_lst} \
+            -i ${outdir} \
+            -l ${barcode_csv} \
+            -g ${ref_genome}
+
+        echo '===== ${sample} step3.3 done ====='
+    "
+    echo "===== ${sample} step3 done ====="
+
+done
+```
+
+**filtering:**
+
+```{R,eval=FALSE}
+library(dplyr)
+library(data.table)
+library(stringr)
+
+MONO_BASE <- "/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/monopo"
+samples <- c("Acral1_SRR20791206", "Acral2_SRR20791205", "Acral3pre_SRR20791203", "Acral3post_SRR20791202", "Acral4_SRR20791201", "Cutaneous1_SRR20791198", "Cutaneous1Lym_SRR20791196", "Cutaneous2_SRR20791197")
+chroms <- paste0("chr", 1:22)
+
+min_cells_with_any_reads <- 5
+min_cells_with_alt_reads <- 2
+
+parse_ref_alt_vec <- function(x) {
+  x <- as.character(x)
+  x[is.na(x) | x == "" | x == "."] <- "0/0"
+  ref <- as.numeric(sub("/.*", "", x))
+  alt <- as.numeric(sub(".*/", "", x))
+  data.frame(ref = ref, alt = alt)
+}
+
+process_one_chr <- function(sample, chr) {
+  message("Processing ", sample, " ", chr, " ...")
+  BASE_DIR <- file.path(MONO_BASE, sample, "somatic")
+  OUT_DIR  <- file.path(MONO_BASE, sample, "somatic_combine")
+  dir.create(OUT_DIR, recursive = TRUE, showWarnings = FALSE)
+  
+  meta_file <- file.path(BASE_DIR, paste0(chr, ".putativeSNVs.csv"))
+  mat_file  <- file.path(BASE_DIR, paste0(chr, ".SNV_mat.RDS"))
+  
+  if (!file.exists(meta_file)) {
+    warning("Missing meta file: ", meta_file)
+    return(NULL)
+  }
+  if (!file.exists(mat_file)) {
+    warning("Missing mat file: ", mat_file)
+    return(NULL)
+  }
+  
+  meta <- fread(meta_file, data.table = FALSE)
+  meta_filter <- meta %>%
+    filter(
+      Depth_total > 10,
+      BAF_alt > 0.05,
+      SVM_pos_score > 0.1
+    )
+  
+  message(chr, " meta total: ", nrow(meta),
+          " | after meta filter: ", nrow(meta_filter))
+          
+  snv_pass <- paste0(
+    meta_filter$chr, ":",
+    meta_filter$pos, ":",
+    meta_filter$Ref_allele, ":",
+    meta_filter$Alt_allele
+  )
+  
+  mat <- readRDS(mat_file)
+  cell_cols <- colnames(mat)[19:ncol(mat)]
+  common_snv <- intersect(snv_pass, rownames(mat))
+  message(chr, " overlap SNVs: ", length(common_snv))
+  mat_sub <- mat[common_snv, cell_cols, drop = FALSE]
+  
+  variant_stat <- lapply(seq_len(nrow(mat_sub)), function(i) {
+    x <- unlist(mat_sub[i, ], use.names = FALSE)
+    pa <- parse_ref_alt_vec(x)
+    
+    data.frame(
+      sample = sample,
+      chr = chr,
+      snv = rownames(mat_sub)[i],
+      n_cells_with_any_reads = sum((pa$ref + pa$alt) > 0),
+      n_cells_with_alt_reads = sum(pa$alt > 0),
+      total_ref_reads = sum(pa$ref),
+      total_alt_reads = sum(pa$alt),
+      stringsAsFactors = FALSE
+    )
+  }) %>%
+    bind_rows()
+  
+  variant_pass <- variant_stat %>%
+    filter(
+      n_cells_with_any_reads >= min_cells_with_any_reads,
+      n_cells_with_alt_reads >= min_cells_with_alt_reads
+    )
+  
+  message(chr, " after cell-level filter: ", nrow(variant_pass))
+  message(chr, " cells: ", length(cell_cols))
+  mat_pass <- mat_sub[variant_pass$snv, , drop = FALSE]
+  
+  cell_count <- sapply(cell_cols, function(cc) {
+    x <- as.character(mat_pass[, cc])
+    alt <- as.numeric(sub(".*/", "", x))
+    alt[is.na(alt)] <- 0
+    sum(alt > 0)
+  })
+  
+  cell_count_df <- data.frame(
+    sample = sample,
+    chr = chr,
+    cell = names(cell_count),
+    n_variants = as.integer(cell_count),
+    stringsAsFactors = FALSE
+  )
+  
+  long_df <- lapply(seq_len(nrow(mat_pass)), function(i) {
+    x <- as.character(mat_pass[i, ])
+    pa <- parse_ref_alt_vec(x)
+    
+    data.frame(
+      sample = sample,
+      chr = chr,
+      snv = rownames(mat_pass)[i],
+      cell = colnames(mat_pass),
+      ref_reads = pa$ref,
+      alt_reads = pa$alt,
+      stringsAsFactors = FALSE
+    ) %>%
+      filter(alt_reads > 0) %>%
+      mutate(
+        cell_id = paste0(sample, "_", cell),
+        total_reads = ref_reads + alt_reads,
+        baf_cell = alt_reads / total_reads
+      )
+  }) %>%
+    bind_rows()
+  
+  rm(mat, mat_sub, mat_pass)
+  gc()
+  
+  list(
+    variant_stat = variant_stat,
+    variant_pass = variant_pass,
+    cell_count_df = cell_count_df,
+    long_df = long_df
+  )
+}
+
+process_one_sample <- function(sample) {  
+  message("==============================")
+  message("Start sample: ", sample)
+  message("==============================")
+  
+  OUT_DIR <- file.path(MONO_BASE, sample, "somatic_combine")
+  dir.create(OUT_DIR, recursive = TRUE, showWarnings = FALSE)
+  
+  res_list <- lapply(chroms, function(chr) {
+    process_one_chr(sample, chr)
+  })
+  
+  res_list <- res_list[!sapply(res_list, is.null)]
+  
+  if (length(res_list) == 0) {
+    warning(sample, ": no valid chromosome results.")
+    return(NULL)
+  }
+  
+  variant_stat_all <- bind_rows(lapply(res_list, `[[`, "variant_stat"))
+  variant_pass_all <- bind_rows(lapply(res_list, `[[`, "variant_pass"))
+  cell_count_by_chr <- bind_rows(lapply(res_list, `[[`, "cell_count_df"))
+  cell_snv_long_all <- bind_rows(lapply(res_list, `[[`, "long_df"))
+  
+  cell_variant_count <- cell_count_by_chr %>%
+    group_by(sample, cell) %>%
+    summarise(
+      n_variants = sum(n_variants),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      cell_id = paste0(sample, "_", cell)
+    )
+  
+  list(
+    variant_stat_all = variant_stat_all,
+    variant_pass_all = variant_pass_all,
+    cell_count_by_chr = cell_count_by_chr,
+    cell_variant_count = cell_variant_count,
+    cell_snv_long_all = cell_snv_long_all
+  )
+}
+
+all_sample_results <- lapply(samples, process_one_sample)
+names(all_sample_results) <- samples
+
+all_sample_results <- all_sample_results[!sapply(all_sample_results, is.null)]
+
+
+ALL_OUT_DIR <- file.path(MONO_BASE, "all_samples_somatic_combine")
+dir.create(ALL_OUT_DIR, recursive = TRUE, showWarnings = FALSE)
+
+all_cell_variant_count <- bind_rows(lapply(all_sample_results, `[[`, "cell_variant_count"))
+all_cell_snv_long <- bind_rows(lapply(all_sample_results, `[[`, "cell_snv_long_all"))
+all_variant_pass <- bind_rows(lapply(all_sample_results, `[[`, "variant_pass_all"))
+
+write.table(
+  all_cell_variant_count,
+  file = file.path(ALL_OUT_DIR, "All_samples_Monopogen_filtered_cell_variant_count.tsv"),
+  sep = "\t", quote = FALSE, row.names = FALSE
+)
+
+write.table(
+  all_cell_snv_long,
+  file = file.path(ALL_OUT_DIR, "All_samples_Monopogen_filtered_cell_snv_long.tsv"),
+  sep = "\t", quote = FALSE, row.names = FALSE
+)
+
+write.table(
+  all_variant_pass,
+  file = file.path(ALL_OUT_DIR, "All_samples_Monopogen_filtered_variant_pass.tsv"),
+  sep = "\t", quote = FALSE, row.names = FALSE
+)
+
+```
+
+
+**10x pooled level (somatic):**
+
+```{bash,eval=FALSE}
+###===== Linux command =====##
+IN=/mnt/storage/tantingting/scmut/vcf/1_cSCC_scRNA/monopo/all_samples_somatic_combine/All_samples_Monopogen_filtered_cell_snv_long.tsv
+OUT_BASE=/mnt/storage/tantingting/scmut/vcf/1_cSCC_scRNA/monopo/all_samples_somatic_combine
+
+mkdir -p "$OUT_BASE"
+
+for s in P4 P5 P6 P7 P9 P10; do
+    sample="${s}_cSCC"
+    OUT="${OUT_BASE}/${sample}_Monopogen_somatic_unique.vcf.gz"
+    TMP="${OUT_BASE}/${sample}_Monopogen_somatic_unique.vcf"
+
+    {
+        echo '##fileformat=VCFv4.2'
+        echo '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype for RTG vcfeval compatibility">'
+        echo -e "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tTUMOR"
+
+        awk -v s="$sample" '
+        BEGIN{OFS="\t"}
+        NR>1 && $1==s {
+            split($3,a,":")
+            key=a[1]":"a[2]":"a[3]":"a[4]
+            if(!seen[key]++){
+                print a[1],a[2],".",a[3],a[4],".","PASS",".","GT","0/1"
+            }
+        }' "$IN" | sort -k1,1V -k2,2n
+    } > "$TMP"
+
+    bgzip -f -c "$TMP" > "$OUT"
+    tabix -f -p vcf "$OUT"
+    rm "$TMP"
+
+    echo "$sample : $(bcftools view -H "$OUT" | wc -l) unique SNVs"
+done
+```
+
+## Freebayes
+
+FreeBayes is a Bayesian haplotype-based variant caller for detecting SNVs and indels from aligned sequencing reads.
+
+**Reference:** [FreeBayes (arXiv, 2012)](https://github.com/freebayes/freebayes)
+
+</details>
+  
+<details>
+<summary>10x pooled level</summary>
+  
+**calling:**
+  
+```{bash,eval=FALSE}
+export PATH=/home/tantingting/scmut/tools:$PATH
+ref_genome="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+samples=("Acral1_SRR20791206" "Acral2_SRR20791205" "Acral3pre_SRR20791203" "Acral3post_SRR20791202" "Acral4_SRR20791201" "Cutaneous1_SRR20791198" "Cutaneous1Lym_SRR20791196" "Cutaneous2_SRR20791197" )
+
+for sample in "${samples[@]}"
+do
+    BAM="/mnt/storage/tantingting/scmut/bam/2_melanoma_scRNA/${sample}/outs/possorted_genome_bam.bam"
+    OUT_DIR="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/freebayes_pool/${sample}"
+    VCF_GZ="${OUT_DIR}/${sample}.vcf.gz"
+    echo "Processing sample: ${sample}"
+    mkdir -p "${OUT_DIR}"
+    memusg -t freebayes-parallel /home/tantingting/scmut/ref/bwa_ref/10w_regions_1_xy.txt 16  -F 0.05 --min-coverage 10 -m 20 -q 20 -f "$ref_genome" "$BAM"  | bgzip -c > "$VCF_GZ"
+done
+```
+
+  
+**filtering:**
+
+```{bash,eval=FALSE}
+POOL_DIR=$1
+REF="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+OUT_DIR="${POOL_DIR}/filter"
+mkdir -p "${OUT_DIR}"
+
+echo "======================================"
+echo "Input directory : ${POOL_DIR}"
+echo "Output directory: ${OUT_DIR}"
+echo "======================================"
+
+for SAMPLE_DIR in "${POOL_DIR}"/*; do
+
+    # Skip non-directory entries
+    [ -d "${SAMPLE_DIR}" ] || continue
+
+    sample=$(basename "${SAMPLE_DIR}")
+
+    # Skip the filter directory itself
+    if [ "${sample}" = "filter" ]; then
+        continue
+    fi
+
+    INPUT_VCF="${SAMPLE_DIR}/${sample}.vcf"
+
+    if [ ! -f "${INPUT_VCF}" ]; then
+        echo "[WARN] Skip ${sample}: ${INPUT_VCF} not found"
+        continue
+    fi
+
+    OUTPUT_VCF="${OUT_DIR}/${sample}_PASS.vcf.gz"
+
+    echo
+    echo "======================================"
+    echo "Processing ${sample}"
+    echo "======================================"
+
+    bcftools norm -f "${REF}" \
+        -m -both "${INPUT_VCF}" | \
+    bcftools view \
+        -i '
+        FMT/GT!="0/0" &&
+            QUAL>20 &&
+            INFO/AF[0]>0.05 &&
+            (
+              (TYPE="snp"   && INFO/DP[0]>10) ||
+              (TYPE!="snp"  && INFO/DP[0]>15)
+            )
+        ' \
+        -Oz -o "${OUTPUT_VCF}"
+
+    bcftools index -t "${OUTPUT_VCF}"
+    NVAR=$(bcftools view -H "${OUTPUT_VCF}" | wc -l)
+    echo "[INFO] ${sample}: ${NVAR} variants kept"
+
+done
+
+echo
+echo "======================================"
+echo "All samples finished"
+echo "Results saved in:"
+echo "${OUT_DIR}"
+echo "======================================"
+```
+
+</details>
+  
+<details>
+<summary>10x cell-type level</summary>
+  
+```{bash,eval=FALSE}
+#!/bin/bash
+export PATH=/home/tantingting/scmut/tools:$PATH
+ref_genome="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+samples=(
+  "Acral1_SRR20791206"
+  "Acral2_SRR20791205"
+  "Acral3pre_SRR20791203"
+  "Acral3post_SRR20791202"
+  "Acral4_SRR20791201"
+  "Cutaneous1_SRR20791198"
+  "Cutaneous1Lym_SRR20791196"
+  "Cutaneous2_SRR20791197"
+)
+
+celltypes=("Melanoma" "T")
+
+for sample in "${samples[@]}"; do
+    echo ">>> Processing sample: ${sample}"
+
+    for ct in "${celltypes[@]}"; do
+        echo "---- Cell type: ${ct}"
+
+        BAM="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/scomatic/${sample}/${sample}.${ct}.bam"
+        OUT_DIR="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/freebayes_type"
+        VCF_GZ="${OUT_DIR}/${sample}_${ct}.vcf.gz"
+
+        echo "     BAM: ${BAM}"
+        echo "     VCF: ${VCF_GZ}"
+
+        if [[ ! -f "${BAM}" ]]; then
+            echo "ERROR: BAM not found: ${BAM}"
+            continue
+        fi
+
+		memusg -t freebayes-parallel /home/tantingting/scmut/ref/bwa_ref/10w_regions_1_xy.txt 16  -F 0.05 --min-coverage 10 -m 20 -q 20 -f "$ref_genome" "$BAM"  | bgzip -c > "$VCF_GZ"
+
+        echo "---- Finished ${sample} ${ct}"
+    done
+done
+
+echo ">>> All done."
+```
+
+
+</details>
+  
+<details>
+<summary>Smart-seq2</summary>
+```{bash,eval=FALSE}
+export PATH=/home/tantingting/scmut/tools:$PATH
+dataset="$1"
+batch_file="$2"
+
+ref_genome="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+region_file="/home/tantingting/scmut/ref/bwa_ref/10w_regions_1_xy.txt"
+
+bam_dir="/mnt/storage/tantingting/scmut_smart/bam/${dataset}/md_bam"
+out_base="/mnt/storage/tantingting/scmut_smart/vcf/${dataset}/freebayes"
+filter_dir="${out_base}/filter"
+
+mkdir -p "$out_base" "$filter_dir"
+
+while read -r sample; do
+    [[ -z "$sample" || "$sample" =~ ^# ]] && continue
+
+    bam="${bam_dir}/${sample}_sortmd.bam"
+    raw_vcf="${out_base}/${sample}.freebayes.vcf.gz"
+    pass_vcf="${filter_dir}/${sample}.freebayes_PASS.vcf.gz"
+
+    echo "========== ${dataset} | ${sample} =========="
+    [[ ! -f "$bam" ]] && echo "[WARN] Missing $bam" && continue
+
+    if [[ ! -f "$raw_vcf" || ! -f "${raw_vcf}.tbi" ]]; then
+        echo "[CALL] $sample"
+
+        memusg -t bash -c '
+          freebayes-parallel "'"$region_file"'" 16 -F 0.05 --min-coverage 10 -m 20 -q 20 -f "'"$ref_genome"'" "'"$bam"'" | bgzip -c > "'"$raw_vcf"'"
+        '
+
+        [[ ! -f "$raw_vcf" ]] && echo "[ERROR] CALL failed: $sample" && continue
+        tabix -p vcf "$raw_vcf"
+    else
+        echo "[SKIP CALL] $sample"
+    fi
+
+    if [[ ! -f "$pass_vcf" || ! -f "${pass_vcf}.tbi" ]]; then
+        echo "[FILTER] $sample"
+
+        bcftools norm -f "$ref_genome" -m -both "$raw_vcf" | \
+        bcftools view -i '
+            FMT/GT!="0/0" &&
+            QUAL>20 &&
+            INFO/AF[0]>0.05 &&
+            (
+                (TYPE="snp"  && INFO/DP[0]>10) ||
+                (TYPE!="snp" && INFO/DP[0]>15)
+            )
+        ' -Oz -o "$pass_vcf"
+
+        [[ ! -f "$pass_vcf" ]] && echo "[ERROR] FILTER failed: $sample" && continue
+        tabix -p vcf "$pass_vcf"
+
+        echo "[INFO] Filtered VCF: $pass_vcf"
+        echo "[INFO] Kept sites: $(bcftools view -H "$pass_vcf" | wc -l)"
+    else
+        echo "[SKIP FILTER] $sample"
+        echo "[INFO] Kept sites: $(bcftools view -H "$pass_vcf" | wc -l)"
+    fi
+
+    echo "[DONE] $sample"
+
+done < "$batch_file"
+```
+
+
+## Strelka2
+
+Strelka2 is a haplotype-based variant caller designed to detect germline and somatic SNVs and indels. Although primarily developed for DNA sequencing, it can also be applied to RNA-seq data using RNA-specific settings.
+
+The workflow included:
+
+- Variant calling: Detect SNVs and indels using the Strelka2 workflow, with the `--rna` option enabled for RNA-seq analysis.
+
+**Reference:** [Strelka2 (Nature Methods, 2018)](https://github.com/Illumina/strelka)
+
+</details>
+  
+<details>
+<summary>10x pooled level</summary>
+
+```{bash,eval=FALSE}
+export PATH=/home/tantingting/scmut/tools:$PATH
+sample="$1"
+REF_GENOME="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+BASE_BAM_DIR="/mnt/storage/tantingting/scmut/bam/2_melanoma_scRNA"
+OUT_BASE="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/strelka2_pool"
+STRELKA_BIN="/home/tantingting/scmut/tools/strelka-2.9.10.centos6_x86_64/bin/configureStrelkaGermlineWorkflow.py"
+PASS_DIR="${OUT_BASE}/filter"
+
+mkdir -p "${OUT_BASE}"
+mkdir -p "${PASS_DIR}"
+
+bam="${BASE_BAM_DIR}/${sample}/outs/possorted_genome_bam.bam"
+
+echo "========== ${sample} =========="
+
+if [[ ! -f "$bam" ]]; then
+    echo "[ERROR] BAM not found:"
+    echo "$bam"
+    exit 1
+fi
+
+run_dir="${OUT_BASE}/${sample}"
+log_file="${run_dir}/${sample}.log"
+
+RAW="${run_dir}/results/variants/variants.vcf.gz"
+FINAL="${PASS_DIR}/${sample}.pass.vcf.gz"
+
+echo "[CONFIG] ${sample}"
+
+"${STRELKA_BIN}" \
+    --bam "${bam}" \
+    --rna \
+    --referenceFasta "${REF_GENOME}" \
+    --runDir "${run_dir}"
+
+echo "[RUN] ${sample}"
+
+memusg -t \
+    "${run_dir}/runWorkflow.py" \
+    -m local \
+    -j 16 \
+    > "${log_file}" 2>&1
+
+echo "[FILTER] ${sample}"
+
+bcftools view \
+    -r chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY,chrM \
+    -i 'ALT!="." && FILTER="PASS"' \
+    "$RAW" | \
+bcftools norm \
+    -f "${REF_GENOME}" \
+    -m -both | \
+bcftools view \
+    -i '
+        ALT!="." &&
+        FMT/GT!="0/0" &&
+        FMT/GT!="0|0" &&
+        QUAL>20 &&
+        (FMT/AD[0:0] + FMT/AD[0:1]) > 0 &&
+        (FMT/AD[0:1] / (FMT/AD[0:0] + FMT/AD[0:1])) > 0.05 &&
+        (
+            (TYPE="snp" && FMT/DP > 10) ||
+            (TYPE!="snp" && FMT/DPI > 15)
+        )
+    ' \
+    -Oz \
+    -o "${FINAL}"
+
+bcftools index -t "${FINAL}"
+nvar=$(bcftools view -H "${FINAL}" | wc -l)
+```
+
+</details>
+  
+<details>
+<summary>10x cell-type level</summary>
+
+```{bash,eval=FALSE}
+#!/bin/bash
+
+export PATH=/home/tantingting/scmut/tools:$PATH
+sample="$1"
+REF_GENOME="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+BASE_BAM_DIR="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/scomatic"
+OUT_BASE="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/strelka2_type"
+STRELKA_BIN="/home/tantingting/scmut/tools/strelka-2.9.10.centos6_x86_64/bin/configureStrelkaGermlineWorkflow.py"
+PASS_DIR="${OUT_BASE}/filter"
+
+mkdir -p "${OUT_BASE}"
+mkdir -p "${PASS_DIR}"
+
+MEL_BAM="${BASE_BAM_DIR}/${sample}/${sample}.Melanoma.bam"
+T_BAM="${BASE_BAM_DIR}/${sample}/${sample}.T.bam"
+
+echo "========== ${sample} =========="
+
+for bam in "$MEL_BAM" "$T_BAM"
+do
+    if [[ ! -f "$bam" ]]; then
+        echo "[ERROR] BAM not found:"
+        echo "$bam"
+        exit 1
+    fi
+done
+
+run_dir="${OUT_BASE}/${sample}"
+log_file="${run_dir}/${sample}.log"
+
+RAW="${run_dir}/results/variants/variants.vcf.gz"
+FINAL="${PASS_DIR}/${sample}.pass.vcf.gz"
+
+echo "[CONFIG] ${sample}"
+
+"${STRELKA_BIN}" \
+    --bam "${MEL_BAM}" \
+    --bam "${T_BAM}" \
+    --rna \
+    --referenceFasta "${REF_GENOME}" \
+    --runDir "${run_dir}"
+
+echo "[RUN] ${sample}"
+
+memusg -t \
+    "${run_dir}/runWorkflow.py" \
+    -m local \
+    -j 16 \
+    > "${log_file}" 2>&1
+
+echo "[FILTER] ${sample}"
+
+bcftools view \
+    -r chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY,chrM \
+    -i 'ALT!="." && FILTER="PASS"' \
+    "$RAW" | \
+bcftools norm \
+    -f "${REF_GENOME}" \
+    -m -both | \
+bcftools view \
+    -i '
+        ALT!="." &&
+        FMT/GT!="0/0" &&
+        FMT/GT!="0|0" &&
+        QUAL>20 &&
+        (FMT/AD[0:0] + FMT/AD[0:1]) > 0 &&
+        (FMT/AD[0:1] / (FMT/AD[0:0] + FMT/AD[0:1])) > 0.05 &&
+        (
+            (TYPE="snp" && FMT/DP > 10) ||
+            (TYPE!="snp" && FMT/DPI > 15)
+        )
+    ' \
+    -Oz \
+    -o "${FINAL}"
+
+bcftools index -t "${FINAL}"
+
+nvar=$(bcftools view -H "${FINAL}" | wc -l)
+
+echo
+echo "[DONE] ${sample}"
+echo "[VCF] ${FINAL}"
+echo "[Variants] ${nvar}"
+echo
+```
+
+
+</details>
+  
+<details>
+<summary>10x pooled level (somatic)</summary>
+
+only for dataset1
+
+```{bash,eval=FALSE}
+export PATH=/home/tantingting/scmut/tools:$PATH
+
+sample="$1"
+patient=${sample%%_cSCC}
+
+REF=/home/tantingting/scmut/ref/bwa_ref/genome.fa
+BAM_BASE=/mnt/storage/tantingting/scmut/bam/1_cSCC_scRNA
+OUT_BASE=/mnt/storage/tantingting/scmut/vcf/1_cSCC_scRNA/strelka2_somatic_pool
+STRELKA=/home/tantingting/scmut/tools/strelka-2.9.10.centos6_x86_64/bin/configureStrelkaSomaticWorkflow.py
+PASS_DIR="${OUT_BASE}/filter"
+
+mkdir -p "$OUT_BASE" "$PASS_DIR"
+
+tumor_bam="${BAM_BASE}/${sample}/outs/${sample}_cr.bam"
+normal_bam="${BAM_BASE}/${patient}_normal/outs/possorted_genome_bam.bam"
+
+run_dir="${OUT_BASE}/${sample}"
+log="${run_dir}/${sample}.log"
+
+SNV="${run_dir}/results/variants/somatic.snvs.vcf.gz"
+INDEL="${run_dir}/results/variants/somatic.indels.vcf.gz"
+FINAL="${PASS_DIR}/${sample}_somatic_PASS.vcf.gz"
+
+echo "========== ${sample} =========="
+echo "Tumor : $tumor_bam"
+echo "Normal: $normal_bam"
+
+[[ -f "$tumor_bam" ]] || { echo "[ERROR] Tumor BAM not found"; exit 1; }
+[[ -f "$normal_bam" ]] || { echo "[ERROR] Normal BAM not found"; exit 1; }
+
+"$STRELKA" --tumorBam "$tumor_bam" --normalBam "$normal_bam" \
+    --referenceFasta "$REF" --runDir "$run_dir"
+
+memusg -t "$run_dir/runWorkflow.py" -m local -j 16 > "$log" 2>&1
+```
+
+
+```{bash,eval=FALSE}
+# Reference genome and output directories
+REF=/home/tantingting/scmut/ref/bwa_ref/genome.fa
+OUT_BASE=/mnt/storage/tantingting/scmut/vcf/1_cSCC_scRNA/strelka2_somatic_pool
+PASS_DIR="${OUT_BASE}/filter"
+
+# Sample list and target chromosomes
+samples=(P4_cSCC P5_cSCC P6_cSCC P7_cSCC P9_cSCC P10_cSCC)
+CHR="chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY,chrM"
+
+mkdir -p "$PASS_DIR"
+
+for sample in "${samples[@]}"; do
+
+    # Define input SNV/indel VCFs and final output
+    run_dir="${OUT_BASE}/${sample}"
+    SNV="${run_dir}/results/variants/somatic.snvs.vcf.gz"
+    INDEL="${run_dir}/results/variants/somatic.indels.vcf.gz"
+    FINAL="${PASS_DIR}/${sample}_somatic_PASS_norm.vcf.gz"
+
+    echo "========== ${sample} =========="
+
+    # Check input VCF files
+    [[ -f "$SNV" ]] || { echo "[ERROR] Missing $SNV"; continue; }
+    [[ -f "$INDEL" ]] || { echo "[ERROR] Missing $INDEL"; continue; }
+
+    # Count PASS variants before merging
+    echo "SNV PASS:   $(bcftools view -f PASS -H "$SNV" | wc -l)"
+    echo "INDEL PASS: $(bcftools view -f PASS -H "$INDEL" | wc -l)"
+
+    # Merge SNVs and indels, sort, retain PASS variants,
+    # and normalize against the reference genome
+    bcftools concat -a "$SNV" "$INDEL" -Ou |
+        bcftools sort -Ou |
+        bcftools view -t "$CHR" -f PASS -Ou |
+        bcftools norm -f "$REF" -m -both -Oz -o "$FINAL"
+
+    # Index the normalized VCF
+    bcftools index -f -t "$FINAL"
+
+    echo "[DONE] $sample"
+    echo "[Variants] $(bcftools view -H "$FINAL" | wc -l)"
+    echo "[VCF] $FINAL"
+    echo
+done
+
+# Extract the tumor sample from each somatic VCF
+STRELKA_BASE=/mnt/storage/tantingting/scmut/vcf/1_cSCC_scRNA/strelka2_somatic_pool/filter
+
+for s in P4 P5 P6 P7 P9 P10; do
+
+    VCF="${STRELKA_BASE}/${s}_cSCC_somatic_PASS_norm.vcf.gz"
+    TUMOR=$(bcftools query -l "$VCF" | tail -1)
+
+    OUT="${STRELKA_BASE}/${s}_cSCC_somatic_PASS_norm_tumor_only.vcf.gz"
+
+    echo "$s : $TUMOR"
+
+    # Retain only the tumor sample and index the output VCF
+    bcftools view -s "$TUMOR" "$VCF" -Oz -o "$OUT"
+    bcftools index -f -t "$OUT"
+
+done
+
+# Add GT information for compatibility with RTG vcfeval
+BASE=/mnt/storage/tantingting/scmut/vcf/1_cSCC_scRNA/strelka2_somatic_pool/filter
+
+for s in P4 P5 P6 P7 P9 P10; do
+
+    IN="${BASE}/${s}_cSCC_somatic_PASS_norm_tumor_only.vcf.gz"
+    OUT="${BASE}/${s}_cSCC_somatic_PASS_norm_rtg.vcf.gz"
+    TMP="${BASE}/${s}_cSCC_somatic_PASS_norm_rtg.vcf"
+
+    {
+        # Preserve VCF header metadata while removing the existing GT definition
+        bcftools view -h "$IN" |
+        grep -v '^#CHROM' |
+        grep -v '##FORMAT=<ID=GT'
+
+        # Add a GT field definition for RTG vcfeval
+        echo '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype added for RTG vcfeval compatibility">'
+
+        # Write the tumor-only VCF column header
+        echo -e "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tTUMOR"
+
+        # Assign a heterozygous genotype (0/1) to each retained variant
+        bcftools view -H "$IN" |
+        awk 'BEGIN{OFS="\t"} {print $1,$2,$3,$4,$5,$6,$7,$8,"GT","0/1"}'
+
+    } > "$TMP"
+
+    # Compress, index, and remove the temporary VCF
+    bgzip -f -c "$TMP" > "$OUT"
+    tabix -f -p vcf "$OUT"
+    rm "$TMP"
+
+    echo "[DONE] $s"
+done
+```
+
+</details>
+  
+<details>
+<summary>Smart-seq2</summary>
+```{bash,eval=FALSE}
+export PATH=/home/tantingting/scmut/tools:$PATH
+dataset="$1"
+batch_file="$2"
+REF_GENOME="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+BAM_DIR="/mnt/storage/tantingting/scmut_smart/bam/${dataset}/md_bam"
+OUT_BASE="/mnt/storage/tantingting/scmut_smart/vcf/${dataset}/strelka2"
+
+STRELKA_BIN="/home/tantingting/scmut/tools/strelka-2.9.10.centos6_x86_64/bin/configureStrelkaGermlineWorkflow.py"
+
+PASS_DIR="${OUT_BASE}/filter"
+
+mkdir -p "${OUT_BASE}"
+mkdir -p "${PASS_DIR}"
+
+while read -r sample; do
+
+    [[ -z "$sample" || "$sample" =~ ^# ]] && continue
+
+    bam="${BAM_DIR}/${sample}_sortmd.bam"
+
+    echo "========== ${dataset} | ${sample} =========="
+
+    if [[ ! -f "$bam" ]]; then
+        echo "[ERROR] BAM not found: $bam"
+        continue
+    fi
+
+    run_dir="${OUT_BASE}/${sample}"
+    log_file="${OUT_BASE}/${sample}/${sample}.log"
+
+    RAW="${run_dir}/results/variants/variants.vcf.gz"
+    FINAL="${PASS_DIR}/${sample}.pass.vcf.gz"
+
+    if [[ -f "$FINAL" ]]; then
+        echo "[SKIP] ${sample}"
+        continue
+    fi
+    echo "[CONFIG] ${sample}"
+
+    "${STRELKA_BIN}" \
+        --bam "${bam}" \
+        --rna \
+        --referenceFasta "${REF_GENOME}" \
+        --runDir "${run_dir}"
+
+    if [[ $? -ne 0 ]]; then
+        echo "[FAILED CONFIG] ${sample}"
+        continue
+    fi
+
+    echo "[RUN] ${sample}"
+
+    memusg -t \
+        "${run_dir}/runWorkflow.py" \
+        -m local \
+        -j 16 \
+        > "${log_file}" 2>&1
+
+    if [[ $? -ne 0 ]]; then
+        echo "[FAILED] ${sample}"
+        continue
+    fi
+
+    echo "[FILTER] ${sample}"
+
+    bcftools view \
+      -r chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY,chrM \
+      -i 'ALT!="." && FILTER="PASS"' \
+      "$RAW" | \
+    bcftools norm -f "${REF_GENOME}" -m -both | \
+    bcftools view -i '
+      ALT!="." &&
+      FMT/GT!="0/0" &&
+      FMT/GT!="0|0" &&
+      QUAL>20 &&
+      (FMT/AD[0:1] / (FMT/AD[0:0] + FMT/AD[0:1])) > 0.05 &&
+      (
+        (TYPE="snp"   && FMT/DP  > 10) ||
+        (TYPE!="snp" && FMT/DPI > 15)
+      )
+    ' -Oz -o "$FINAL"
+
+    bcftools index -t "${FINAL}"
+    nvar=$(bcftools view -H "${FINAL}" | wc -l)
+
+    echo "[DONE] ${sample}  Variants=${nvar}"
+    echo
+
+done < "${batch_file}"
+```
+
+## scSNV
+
+scSNV detects single-nucleotide variants from droplet-based scRNA-seq data using UMI consensus collapsing to reduce sequencing errors.
+
+The workflow included:
+
+- Barcode counting: Identify cell barcodes from FASTQ files using a chemistry-specific barcode whitelist.
+- Read mapping: Align reads to the reference genome using `scsnv map`.
+- UMI collapsing: Collapse reads sharing the same UMI to reduce sequencing errors.
+- Cell identification: Identify valid cell barcodes using `scsnvmisc cells`.
+- Variant detection: Generate allele-specific pileups from collapsed reads.
+- Annotation: Annotate variants using population and RNA-editing reference databases.
+- Post-processing: Convert annotated results into sparse matrices using `scsnv2mtx` for downstream analysis.
+
+**10x chemistry settings:**
+
+- 10x 3' v2: `-l V2`, whitelist: `737K-august-2016.txt`
+- 10x 3' v3: `-l V3`, whitelist: `3M-february-2018.txt`
+- 10x 5' v2: `-l V2_5P`
+- 10x 5' v3: `-l V3_5P`
+
+**Reference:** [scSNV (Genome Biology, 2021)](https://github.com/GWW/scsnv)
+
+</details>
+  
+<details>
+<summary>10x pooled level</summary>
+
+**calling:**
+
+```{bash,eval=FALSE}
+#!/bin/bash
+export PATH=/home/tantingting/scmut/tools:$PATH
+
+samples=("Acral1_SRR20791206" "Acral2_SRR20791205" "Cutaneous1_SRR20791198")
+
+ref_dir="/home/tantingting/scmut/ref"
+bwa_ref="${ref_dir}/bwa_ref"
+anno_dir="${ref_dir}/scsnv_anno"
+
+scsnv_bin="/home/tantingting/scmut/tools/scsnv/build/src/scsnv"
+fastq_root="/mnt/storage/tantingting/scmut/fastp/2_melanoma_scRNA"
+out_root="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/scsnv"
+
+barcode_file="/home/tantingting/scmut/tools/scsnv/data/737K-august-2016.txt"
+
+for sample in "${samples[@]}"; do
+    echo ">>> Processing $sample"
+
+    fastq_dir="${fastq_root}/${sample}"
+    out_dir="${out_root}/${sample}"
+    mkdir -p "$out_dir"
+
+    ## 1. count
+    memusg -t "$scsnv_bin" count -l V2 \
+        -o "$out_dir/barcode" \
+        -k "$barcode_file" "$fastq_dir"
+    echo "$sample: 1.count done"
+    
+    ## 2. map
+    memusg -t "$scsnv_bin" map -l V2 \
+        -i "$bwa_ref/scsnv_ref" \
+        -g "$bwa_ref/genome.fa" \
+        -b "$out_dir/barcode" \
+        -t 16 --bam-write 4 -q 4 \
+        -o "$out_dir/" "$fastq_dir"
+    echo "$sample: 2.map done"
+    
+    ## 3. collapse
+    memusg -t "$scsnv_bin" collapse -l V2 \
+        -r "$bwa_ref/genome.fa" \
+        -i "$bwa_ref/scsnv_ref" \
+        -b "$out_dir/barcode_counts.txt.gz" \
+        --threads 16 --bam-write 8 \
+        -o "$out_dir/" "$out_dir/merged.bam"
+    echo "$sample: 3.collapse done"
+
+    ## 4. cells
+    memusg -t scsnvmisc cells --skip-mt -o "$out_dir" "$out_dir/summary.h5"
+    echo "$sample: 4.cells done"
+    
+    ## 5. pileup
+    memusg -t "$scsnv_bin" pileup -l V2 -t 8 -x 8 \
+         -i "$bwa_ref/scsnv_ref" \
+         -r "$bwa_ref/genome.fa" \
+         -p "$out_dir/passed_barcodes.txt.gz" \
+         -o "$out_dir/pileup" "$out_dir/collapsed.bam"
+    echo "$sample: 5.pileup done"
+    
+    ## 6. annotate
+    memusg -t scsnvmisc annotate \
+        -d "$anno_dir/1000Genome_change.txt" \
+        -e "$anno_dir/TABLE1_hg38_v2.txt" \
+        "$out_dir/pileup"
+    echo "$sample: 6.annotate done"
+
+    memusg -t scsnv2mtx "$out_dir/pileup_annotated.h5" "$out_dir"
+    echo "$sample: 7.scsnv2mtx done"
+    
+    echo ">>> $sample finished."
+    echo "----------------------------------"
+done
+
+echo "All samples done."
+```
+
+**filering (pooled level):**
+
+```{bash,eval=FALSE}
+SC_BASE=$1
+
+echo "======================================"
+echo "Input directory: ${SC_BASE}"
+echo "======================================"
+
+mkdir -p "${SC_BASE}/filter"
+
+for SAMPLE_DIR in "${SC_BASE}"/*; do
+
+    [ -d "$SAMPLE_DIR" ] || continue
+
+    sample=$(basename "$SAMPLE_DIR")
+
+    in_csv="${SAMPLE_DIR}/snvs.csv"
+
+    if [[ ! -f "$in_csv" ]]; then
+        echo "[WARN] Skip ${sample}: snvs.csv not found"
+        continue
+    fi
+
+    echo ">>> Processing ${sample}"
+
+    out_prefix="${SC_BASE}/filter/${sample}"
+
+    ####################################
+    # Step1: CSV filter
+    ####################################
+    awk -F',' '
+    BEGIN{OFS=","}
+    NR==1{
+        print "chrom","pos","ref","alt","ref_count","alt_count","strand","strand_AF","total_barcodes"
+        next
+    }
+    {
+        chrom=$1
+        pos=$2
+        ref=$3
+        alt=$4
+
+        refc=$5+0
+        altc=$8+0
+
+        strand=$15
+        af=$20+0
+        barcodes=$22+0
+
+        dp=refc+altc
+
+        if (chrom !~ /^chr([1-9]|1[0-9]|2[0-2]|X|Y|M)$/) next
+        if (dp <= 10) next
+        if (af <= 0.05) next
+
+        print chrom,pos,ref,alt,refc,altc,strand,af,barcodes
+    }' "$in_csv" > "${out_prefix}.filtered.csv"
+
+    ####################################
+    # Step2: CSV -> VCF
+    ####################################
+    awk -F',' '
+    BEGIN{
+        OFS="\t"
+
+        print "##fileformat=VCFv4.2"
+        print "##source=scSNV"
+
+        for(i=1;i<=22;i++)
+            print "##contig=<ID=chr"i">"
+
+        print "##contig=<ID=chrX>"
+        print "##contig=<ID=chrY>"
+        print "##contig=<ID=chrM>"
+
+        print "##INFO=<ID=REF_COUNT,Number=1,Type=Integer,Description=\"Reference allele count\">"
+        print "##INFO=<ID=ALT_COUNT,Number=1,Type=Integer,Description=\"Alternative allele count\">"
+        print "##INFO=<ID=DP,Number=1,Type=Integer,Description=\"Depth\">"
+        print "##INFO=<ID=STRAND,Number=1,Type=String,Description=\"Strand\">"
+        print "##INFO=<ID=STRAND_AF,Number=1,Type=Float,Description=\"Strand AF\">"
+        print "##INFO=<ID=TOTAL_BARCODES,Number=1,Type=Integer,Description=\"Total barcodes\">"
+
+        print "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">"
+
+        print "#CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO","FORMAT","SAMPLE"
+    }
+    NR==1{next}
+    {
+        refc=$5+0
+        altc=$6+0
+        dp=refc+altc
+
+        info="REF_COUNT="refc";ALT_COUNT="altc";DP="dp";STRAND="$7";STRAND_AF="$8";TOTAL_BARCODES="$9
+
+        print $1,$2+1,".",$3,$4,".","PASS",info,"GT","0/1"
+    }' "${out_prefix}.filtered.csv" > "${out_prefix}.pos1.vcf"
+
+    ####################################
+    # Step3: sort + compress + index
+    ####################################
+    bcftools sort \
+        "${out_prefix}.pos1.vcf" \
+        -o "${out_prefix}_PASS.vcf"
+
+    bgzip -f "${out_prefix}_PASS.vcf"
+
+    tabix -f -p vcf \
+        "${out_prefix}_PASS.vcf.gz"
+
+    echo "[OK] ${sample}"
+
+done
+
+echo "======================================"
+echo "ALL DONE"
+echo "======================================"
+```
+
+
+</details>
+  
+<details>
+<summary>10x single-cell level</summary>
+
+```{bash,eval=FALSE}
+import os
+import argparse
+import numpy as np
+import pandas as pd
+from scipy.io import mmread
+
+def main():
+    parser = argparse.ArgumentParser(description="Extract filtered scSNV cell-mutation pairs and per-cell mutation counts.")
+    parser.add_argument("--sample", required=True, help="Sample name, e.g. P5_cSCC")
+    parser.add_argument("--indir", required=True, help="scSNV output directory")
+    parser.add_argument("--outdir", required=True, help="Output directory")
+
+    args = parser.parse_args()
+
+    sample = args.sample
+    indir = args.indir
+    outdir = args.outdir
+    os.makedirs(outdir, exist_ok=True)
+
+    barcode_file = os.path.join(indir, "barcodes.txt")
+    snv_file = os.path.join(indir, "snvs.csv")
+    alt_file = os.path.join(indir, "alts.mtx")
+    filtered_file = os.path.join(indir, args.filtered_csv)
+
+    print(f"[INFO] sample: {sample}")
+    print(f"[INFO] input dir: {indir}")
+
+    # 1. Read cell barcodes and remove any trailing "-1" suffix
+    barcodes = pd.read_csv(barcode_file, header=None, names=["cell"])
+    barcodes["cell"] = barcodes["cell"].astype(str).str.replace("-1$", "", regex=True)
+    barcodes["cell_index0"] = np.arange(barcodes.shape[0])
+    print(f"[INFO] n_cells: {barcodes.shape[0]}")
+
+    # 2. Read all SNV information; row indices in alts.mtx correspond to SNV row indices
+    snvs = pd.read_csv(snv_file)
+    snvs["snv_index0"] = np.arange(snvs.shape[0])
+    snvs["mut"] = snvs["chrom"].astype(str) + ":" + snvs["pos"].astype(str) + ":" + snvs["ref"].astype(str) + ":" + snvs["alt"].astype(str)
+    print(f"[INFO] n_all_snvs: {snvs.shape[0]}")
+
+    # 3. Read the filtered SNV list for subsequent filtering by mutation ID
+    filtered = pd.read_csv(filtered_file)
+    filtered["mut"] = filtered["chrom"].astype(str) + ":" + filtered["pos"].astype(str) + ":" + filtered["ref"].astype(str) + ":" + filtered["alt"].astype(str)
+    keep_mut = set(filtered["mut"])  # Convert mutation IDs to a set
+    print(f"[INFO] n_filtered_snvs: {len(keep_mut)}")
+
+    # 4. Read alts.mtx and retain cell-SNV records with alt_count > 0
+    print("[INFO] reading alts.mtx ...")
+    alt_mtx = mmread(alt_file).tocoo()
+    print(f"[INFO] alt matrix shape: {alt_mtx.shape}")  # Verify matrix dimensions
+
+    if alt_mtx.shape[0] != snvs.shape[0]:
+        raise ValueError("Number of SNVs in alts.mtx does not match snvs.csv.")
+    if alt_mtx.shape[1] != barcodes.shape[0]:
+        raise ValueError("Number of cells in alts.mtx does not match barcodes.txt.")
+
+    # Row index (SNV) | Column index (cell) | Value (alternative allele read count)
+    df = pd.DataFrame({"snv_index0": alt_mtx.row.astype(np.int64), "cell_index0": alt_mtx.col.astype(np.int64), "alt_count": alt_mtx.data.astype(np.int32)})
+    df = df[df["alt_count"] > 0].copy()
+    print(f"[INFO] cell-SNV records with alt_count > 0 before filtering: {df.shape[0]}")
+
+    # 5. Map matrix indices back to mutation IDs and cell barcodes
+    df = df.merge(barcodes[["cell_index0", "cell"]], on="cell_index0", how="left")
+    df = df.merge(snvs[["snv_index0", "mut"]], on="snv_index0", how="left")
+
+    # 6. Retain mutations present in the filtered SNV list
+    df = df[df["mut"].isin(keep_mut)].copy()
+    print(f"[INFO] cell-SNV records after filtered SNV list: {df.shape[0]}")
+
+    # 7. Export unique cell-mutation pairs
+    cell_mut = df[["cell", "mut"]].drop_duplicates()
+    out_cell_mut = os.path.join(outdir, f"{sample}_scSNV_filtered_cell_mut.tsv.gz")
+    cell_mut.to_csv(out_cell_mut, sep="\t", index=False, compression="gzip")
+    print(f"[INFO] saved cell-mut table: {out_cell_mut}")
+
+    # 8. Count filtered mutations per cell, retaining cells with zero mutations
+    cell_count = cell_mut.groupby("cell", as_index=False).agg(n_variants=("mut", "nunique"))
+    all_cells = barcodes[["cell"]].copy()
+    cell_count = all_cells.merge(cell_count, on="cell", how="left")
+    cell_count["n_variants"] = cell_count["n_variants"].fillna(0).astype(int)
+    cell_count.insert(0, "sample", sample)
+    cell_count.insert(1, "tool", "scSNV")
+
+    out_count = os.path.join(outdir, f"{sample}_scSNV_filtered_cell_variant_count.tsv")
+    cell_count.to_csv(out_count, sep="\t", index=False)
+    print(f"[INFO] saved cell count table: {out_count}")
+    print("[DONE]")
+
+if __name__ == "__main__":
+    main()
+```
+
+```{bash,eval=FALSE}
+# Run scSNV cell-level mutation counting for each melanoma sample
+for sample in Acral1_SRR20791206 Acral2_SRR20791205 Acral3pre_SRR20791203 Acral3post_SRR20791202 Acral4_SRR20791201 Cutaneous1_SRR20791198 Cutaneous1Lym_SRR20791196 Cutaneous2_SRR20791197
+do
+  sample_short=$(echo "$sample" | sed 's/_SRR[0-9]*$//')
+
+  python scsnv_filtered_cell_count.py \
+    --sample ${sample_short} \
+    --indir /mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/scsnv/${sample} \
+    --outdir /mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/scsnv/${sample}/cell_snv \
+    --filtered_csv ../filter/${sample}.filtered.csv
+done
+```
+
+```{python,eval=FALSE}
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+import glob
+
+BASE_DIR = "/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/scsnv"
+BAM_DIR = "/mnt/storage/tantingting/scmut/bam/2_melanoma_scRNA"
+
+samples = ["Acral1_SRR20791206", "Acral2_SRR20791205", "Acral3pre_SRR20791203", "Acral3post_SRR20791202", "Acral4_SRR20791201", "Cutaneous1_SRR20791198", "Cutaneous1Lym_SRR20791196", "Cutaneous2_SRR20791197"]
+
+all_df = []
+
+for sample in samples:
+    count_file = f"{BASE_DIR}/{sample}/cell_snv/{sample}_scSNV_filtered_cell_variant_count.tsv"
+    reads_file = f"{BAM_DIR}/{sample}/outs/{sample}_barcode_reads_map.csv"
+
+    count_df = pd.read_csv(count_file, sep="\t")
+    reads_df = pd.read_csv(reads_file)
+    reads_df = reads_df.rename(columns={"id": "reads"})
+
+    # Use the cells reported by scSNV as the reference cell set
+    df = count_df.merge(reads_df[["cell", "reads"]], on="cell", how="left")
+    df["sample"] = sample
+    df["cell_id"] = df["sample"] + "_" + df["cell"].astype(str)
+    all_df.append(df)
+
+df_all = pd.concat(all_df, ignore_index=True)
+
+# Remove cells with missing read counts
+df_all = df_all.dropna(subset=["reads"]).copy()
+df_all["reads"] = df_all["reads"].astype(int)
+df_all["n_variants"] = df_all["n_variants"].astype(int)
+
+OUT_FILE = "/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/scsnv/scSNV_variant_count_vs_reads_input.tsv"
+df_all.to_csv(OUT_FILE, sep="\t", index=False)
+```
+
+```{python,eval=FALSE}
+import os
+import pandas as pd
+
+BASE_DIR = "/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/scsnv"
+BAM_DIR = "/mnt/storage/tantingting/scmut/bam/2_melanoma_scRNA"
+
+samples = [
+    "Acral1_SRR20791206",
+    "Acral2_SRR20791205",
+    "Acral3pre_SRR20791203",
+    "Acral3post_SRR20791202",
+    "Acral4_SRR20791201",
+    "Cutaneous1_SRR20791198",
+    "Cutaneous1Lym_SRR20791196",
+    "Cutaneous2_SRR20791197"
+]
+
+all_count = []
+for sample in samples:
+    print(f"\n===== {sample} =====")
+
+    # Extract the short sample name used in the original scSNV output
+    sample_short = sample.split("_SRR")[0]
+
+    # Input files
+    cell_mut_file = (
+        f"{BASE_DIR}/{sample}/cell_snv/"
+        f"{sample_short}_scSNV_filtered_cell_mut.tsv.gz"
+    )
+
+    reads_file = (
+        f"{BAM_DIR}/{sample}/outs/"
+        f"{sample}_barcode_reads_map.csv"
+    )
+
+    # Read cell-mutation pairs and Cell Ranger read counts
+    cell_mut = pd.read_csv(cell_mut_file, sep="\t")
+    reads_df = pd.read_csv(reads_file).rename(columns={"id": "reads"})
+
+    # Standardize barcode formats by removing the trailing "-1"
+    cell_mut["cell"] = (
+        cell_mut["cell"]
+        .astype(str)
+        .str.replace("-1$", "", regex=True)
+    )
+
+    reads_df["cell"] = (
+        reads_df["cell"]
+        .astype(str)
+        .str.replace("-1$", "", regex=True)
+    )
+
+    # Cells in the reads table are considered valid Cell Ranger cells
+    all_cells = reads_df[["cell", "reads"]].drop_duplicates()
+    valid_cells = set(all_cells["cell"])
+
+    print(f"[1] scSNV raw cell-mut pairs: {len(cell_mut)}")
+    print(f"[1] scSNV raw SNVs: {cell_mut['mut'].nunique()}")
+    print(f"[1] scSNV raw cells: {cell_mut['cell'].nunique()}")
+    print(f"[2] CellRanger valid cells: {len(valid_cells)}")
+
+    # Remove scSNV-specific cells absent from the Cell Ranger reads table
+    cell_mut_valid = (
+        cell_mut[cell_mut["cell"].isin(valid_cells)]
+        .drop_duplicates()
+    )
+
+    removed_cells = set(cell_mut["cell"]) - valid_cells
+
+    print(f"[3] removed scSNV-only cells: {len(removed_cells)}")
+    print(f"[3] after valid-cell filter pairs: {len(cell_mut_valid)}")
+    print(f"[3] after valid-cell filter SNVs: {cell_mut_valid['mut'].nunique()}")
+    print(f"[3] after valid-cell filter cells: {cell_mut_valid['cell'].nunique()}")
+
+    # Recalculate the number of supporting cells per SNV
+    # Retain SNVs detected in at least two valid cells
+    snv_ncells = (
+        cell_mut_valid
+        .groupby("mut")["cell"]
+        .nunique()
+        .reset_index(name="n_cells")
+    )
+
+    keep = set(
+        snv_ncells.loc[snv_ncells["n_cells"] >= 2, "mut"]
+    )
+
+    cell_mut_min2 = (
+        cell_mut_valid[cell_mut_valid["mut"].isin(keep)]
+        .drop_duplicates()
+    )
+
+    print(f"[4] SNVs before min2cells: {cell_mut_valid['mut'].nunique()}")
+    print(f"[4] SNVs after min2cells: {cell_mut_min2['mut'].nunique()}")
+    print(f"[4] cell-mut pairs after min2cells: {len(cell_mut_min2)}")
+    print(f"[4] cells with >=1 retained SNV: {cell_mut_min2['cell'].nunique()}")
+
+    # Export filtered cell-mutation pairs
+    out_long = (
+        f"{BASE_DIR}/{sample}/cell_snv/"
+        f"{sample}_scSNV_cell_mut_validcell_min2c.tsv.gz"
+    )
+
+    cell_mut_min2.to_csv(
+        out_long,
+        sep="\t",
+        index=False,
+        compression="gzip"
+    )
+
+    # Recalculate the number of retained variants per cell
+    cell_count = (
+        cell_mut_min2
+        .groupby("cell", as_index=False)
+        .agg(n_variants=("mut", "nunique"))
+    )
+
+    # Retain cells shared by scSNV and Cell Ranger
+    # Only cells with at least one retained SNV are included
+    count_df = cell_count.merge(
+        all_cells,
+        on="cell",
+        how="inner"
+    )
+
+    count_df["n_variants"] = count_df["n_variants"].astype(int)
+    count_df.insert(0, "sample", sample)
+    count_df.insert(1, "tool", "scSNV")
+
+    count_df["cell_id"] = (
+        count_df["sample"] + "_" + count_df["cell"].astype(str)
+    )
+
+    print(f"[5] final output cells: {count_df['cell'].nunique()}")
+    print(f"[5] final zero-variant cells: {(count_df['n_variants'] == 0).sum()}")
+    print(f"[5] final cells with variants: {(count_df['n_variants'] > 0).sum()}")
+    print(f"[5] reads NA count: {count_df['reads'].isna().sum()}")
+
+    # Export per-cell variant counts
+    out_count = (
+        f"{BASE_DIR}/{sample}/cell_snv/"
+        f"{sample}_scSNV_cell_variant_count_validcell_min2c.tsv"
+    )
+
+    count_df.to_csv(
+        out_count,
+        sep="\t",
+        index=False
+    )
+
+    all_count.append(count_df)
+
+    print(f"[OUT] long:  {out_long}")
+    print(f"[OUT] count: {out_count}")
+
+# Combine results across all melanoma samples
+df_all = pd.concat(all_count, ignore_index=True)
+
+out_all = (
+    f"{BASE_DIR}/"
+    "scSNV_variant_count_vs_reads_input_validcell_min2c.tsv"
+)
+
+df_all.to_csv(out_all, sep="\t", index=False)
+```
+
+## cellsnp-lite
+
+cellsnp-lite is an efficient tool for SNP genotyping and allele-specific read counting from bulk and single-cell sequencing data, including DNA-seq, RNA-seq, and ATAC-seq. It supports both 10x Genomics and Smart-seq2 datasets.
+
+Four running modes are available:
+
+- Mode 1a: Genotype predefined SNPs using pooled sequencing data.
+- Mode 1b: Genotype predefined SNPs at the single-cell level.
+- Mode 2a: Discover SNPs de novo using pooled sequencing data.
+- Mode 2b: Discover SNPs de novo at the single-cell level.
+
+**Reference:** [cellsnp-lite (Bioinformatics, 2021)](https://cellsnp-lite.readthedocs.io/en/latest/index.html)
+
+</details>
+  
+<details>
+<summary>10x pooled level</summary>
+
+**calling:**
+
+step1: run cellsnp-lite 2b mode
+
+```{bash,eval=FALSE}
+export PATH=$PATH:/home/tantingting/scmut/tools
+chmod +x /home/tantingting/scmut/tools/memusg
+
+# ================= Parameter Configuration =================
+# Input directory (parent directory of Cell Ranger outputs)
+IN_DIR="/mnt/storage/tantingting/scmut/bam/2_melanoma_scRNA"
+
+# Output directory
+OUT_DIR="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/cellsnp"
+
+# Reference genome
+REF_GENOME="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+
+# Number of threads
+THREADS=16
+# ===========================================================
+
+# Create the main output directory
+mkdir -p "$OUT_DIR"
+
+echo "Starting cellsnp-lite analysis (Mode 2b: De novo calling)..."
+echo "Reference genome: $REF_GENOME"
+
+# Iterate over all samples
+for sample_path in ${IN_DIR}/*_SRR*; do
+
+    # Check whether the path is a directory
+    [ -d "$sample_path" ] || continue
+
+    # Extract sample name
+    sample_name=$(basename "$sample_path")
+
+    echo "--------------------------------------------------"
+    echo "Processing sample: $sample_name"
+
+    # Locate the BAM file (standard Cell Ranger output)
+    BAM="${sample_path}/outs/possorted_genome_bam.bam"
+
+    if [ ! -f "$BAM" ]; then
+        echo "Warning: BAM file not found. Skipping sample $sample_name"
+        continue
+    fi
+
+    # Set sample-specific output directory
+    SAMPLE_OUT="${OUT_DIR}/${sample_name}_2b"
+    mkdir -p "$SAMPLE_OUT"
+
+    # Skip samples with existing output files
+    if [ -f "$SAMPLE_OUT/cellSNP.base.vcf.gz" ]; then
+        echo "Warning: Output file already exists. Skipping: $SAMPLE_OUT"
+        continue
+    fi
+
+    # Run cellsnp-lite
+    # --cellTAG None: Disable cell barcode-based processing
+    # and perform pooled de novo SNP calling
+    memusg -t cellsnp-lite \
+        -s "$BAM" \
+        -O "$SAMPLE_OUT" \
+        -p $THREADS \
+        --minMAF 0.1 \
+        --minCOUNT 20 \
+        --refseq "$REF_GENOME" \
+        --cellTAG None \
+        --UMItag UB \
+        --gzip \
+        --genotype
+
+    if [ $? -eq 0 ]; then
+        echo "Sample $sample_name: cellsnp-lite completed successfully."
+    else
+        echo "Error: cellsnp-lite failed for sample $sample_name!"
+    fi
+done
+
+echo "=================================================="
+echo "All tasks completed."
+```
+
+**filtering:**
+
+```{bash,eval=FALSE}
+CELL_BASE=$1
+CHR_MAP=/home/tantingting/scmut/ref/bwa_ref/chr_map.txt
+
+echo "======================================"
+echo "Input directory : ${CELL_BASE}"
+echo "======================================"
+
+for SAMPLE_DIR in "${CELL_BASE}"/*_2b; do
+
+    [ -d "${SAMPLE_DIR}" ] || continue
+
+    sample=$(basename "${SAMPLE_DIR}")
+	base_sample=${sample%_2b}
+
+    if [[ "${sample}" == "cell_variant_count" ]] || \
+       [[ "${sample}" == "nouse" ]]; then
+        continue
+    fi
+
+    INPUT_VCF="${SAMPLE_DIR}/cellSNP.cells.vcf.gz"
+
+    if [ ! -f "${INPUT_VCF}" ]; then
+        echo "[WARN] Skip ${sample}: cellSNP.cells.vcf.gz not found"
+        continue
+    fi
+
+    echo
+    echo "======================================"
+    echo "Processing ${sample}"
+    echo "======================================"
+	
+	mkdir -p "${CELL_BASE}/filter_2b"
+	OUTPUT_VCF="${CELL_BASE}/filter_2b/${base_sample}_PASS.vcf.gz"
+	
+	if [ ! -f "${OUTPUT_VCF}" ]; then
+
+		bcftools annotate \
+			--rename-chrs "${CHR_MAP}" \
+			"${INPUT_VCF}" -Ou | \
+		bcftools view \
+			-i '
+				INFO/DP>10 &&
+				INFO/AD/INFO/DP>0.05 &&
+				GT!="0/0"
+			' \
+			-Oz \
+			-o "${OUTPUT_VCF}"
+
+		bcftools index -t "${OUTPUT_VCF}"
+	fi
+	NVAR=$(bcftools view -H "${OUTPUT_VCF}" | wc -l)
+	echo "[INFO] ${sample}: ${NVAR} variants kept"
+done
+
+echo
+echo "======================================"
+echo "All samples finished"
+echo "======================================"
+```
+
+</details>
+  
+<details>
+<summary>10x single-cell level</summary>
+
+**calling:**
+
+step2: run cellsnp-lite 1a mode
+
+```{bash,eval=FALSE}
+export PATH=/home/tantingting/scmut/tools:$PATH
+BASE="/mnt/storage/tantingting/scmut"
+BAM_BASE="${BASE}/bam/2_melanoma_scRNA"
+OUT_BASE="${BASE}/vcf/2_melanoma_scRNA/cellsnp"
+REF="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+
+for dir in "${OUT_BASE}"/*_2b
+do
+    sample=$(basename "$dir" _2b)
+    echo "===== Processing ${sample} ====="
+    BAM="${BAM_BASE}/${sample}/outs/possorted_genome_bam.bam"
+    BARCODE="${BAM_BASE}/${sample}/outs/filtered_feature_bc_matrix/barcodes.tsv.gz"
+    REGION_VCF="${OUT_BASE}/${sample}_2b/cellSNP.cells.vcf.gz"
+    OUT_DIR="${OUT_BASE}/${sample}_1a"
+    mkdir -p "$OUT_DIR"
+
+    memusg -t cellsnp-lite \
+        -s "$BAM" \
+        -b "$BARCODE" \
+        -O "$OUT_DIR" \
+        -R "$REGION_VCF" \
+        -p 16 \
+        --minMAF 0.1 \
+        --minCOUNT 20 \
+        --refseq "$REF" \
+        --gzip \
+        --genotype
+
+done
+```
+
+**filtering:**
+
+```{python,eval=FALSE}
+import gzip
+import os
+import csv
+from collections import defaultdict
+
+samples = ["Acral1_SRR20791206", "Acral2_SRR20791205", "Acral3pre_SRR20791203", "Acral3post_SRR20791202", "Acral4_SRR20791201", "Cutaneous1_SRR20791198", "Cutaneous1Lym_SRR20791196", "Cutaneous2_SRR20791197"]
+CELL_BASE = "/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/cellsnp"
+OUT_BASE = "/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/cellsnp/cell_variant_count"
+os.makedirs(OUT_BASE, exist_ok=True)
+
+def parse_info(info):
+    d = {}
+    for x in info.split(";"):
+        if "=" in x:
+            k, v = x.split("=", 1)
+            d[k] = v
+    return d
+
+def get_pass_sites_from_base(base_vcf):
+    """
+    First-round filtering:
+    - Chromosomes 1–22
+    - INFO/DP > 10
+    - INFO/AD / INFO/DP > 0.05
+    """
+    pass_sites = set()
+    with gzip.open(base_vcf, "rt") as f:
+        for line in f:
+            if line.startswith("#"):
+                continue
+            arr = line.rstrip("\n").split("\t")
+            chrom, pos, _id, ref, alt, qual, filt, info = arr[:8]
+            if chrom not in set(map(str, range(1, 23))):
+                continue
+            info_d = parse_info(info)
+            try:
+                dp = int(info_d.get("DP", 0))
+                ad = int(info_d.get("AD", 0))
+            except ValueError:
+                continue
+            if dp <= 10:
+                continue
+            af = ad / dp if dp > 0 else 0
+            if af <= 0.05:
+                continue
+            site_id = f"{chrom}:{pos}:{ref}:{alt}"
+            pass_sites.add(site_id)
+    return pass_sites
+
+def count_cell_variants(sample):
+    sample_dir = os.path.join(CELL_BASE, f"{sample}_1a")
+    base_vcf = os.path.join(sample_dir, "cellSNP.base.vcf.gz")
+    cell_vcf = os.path.join(sample_dir, "cellSNP.cells.vcf.gz")
+    if not os.path.exists(base_vcf):
+        print(f"[WARN] missing base VCF: {base_vcf}")
+        return
+    if not os.path.exists(cell_vcf):
+        print(f"[WARN] missing cell VCF: {cell_vcf}")
+        return
+    print(f"\n===== {sample} =====")
+    pass_sites = get_pass_sites_from_base(base_vcf)
+    print(f"{sample}: first-round retained sites = {len(pass_sites)}")
+    cell_barcodes = []
+    cell_variant_count = defaultdict(int)
+    cell_variant_ids = defaultdict(list)
+    n_total_sites = 0
+    n_round1_sites = 0
+    n_round2_sites = 0
+    with gzip.open(cell_vcf, "rt") as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if line.startswith("##"):
+                continue
+            if line.startswith("#CHROM"):
+                header = line.split("\t")
+                cell_barcodes = header[9:]
+                continue
+            arr = line.split("\t")
+            n_total_sites += 1
+            chrom, pos, _id, ref, alt = arr[0], arr[1], arr[2], arr[3], arr[4]
+            if chrom not in set(map(str, range(1, 23))):
+                continue
+            site_id = f"{chrom}:{pos}:{ref}:{alt}"
+            if site_id not in pass_sites:  # Count variants only at sites retained after first-round filtering
+                continue
+            n_round1_sites += 1
+
+            fmt = arr[8].split(":")  # Determine the positions of GT, AD, and DP fields
+            try:
+                gt_idx = fmt.index("GT")
+                ad_idx = fmt.index("AD")
+                dp_idx = fmt.index("DP")
+            except ValueError:
+                continue
+            sample_fields = arr[9:]
+            cells_with_reads = 0
+            cells_with_alt = 0
+            alt_cells = []
+            for i, g in enumerate(sample_fields):
+                if g == "." or g.startswith(".:"):
+                    continue
+                parts = g.split(":")
+                if len(parts) <= max(gt_idx, ad_idx, dp_idx):
+                    continue  # Prevent incorrect indexing of GT, AD, and DP fields
+                try:
+                    gt = parts[gt_idx]
+                    ad = int(parts[ad_idx])
+                    dp = int(parts[dp_idx])
+                except ValueError:
+                    continue
+                if dp > 0:
+                    cells_with_reads += 1
+
+                # Count a variant only when GT is not 0/0 and AD > 0
+                if ad > 0 and gt not in {"0/0", "0|0", "./.", "."}:
+                    cells_with_alt += 1
+                    alt_cells.append(i)
+
+            if cells_with_reads >= 5 and cells_with_alt >= 2:
+                n_round2_sites += 1
+                for i in alt_cells:
+                    cell = cell_barcodes[i]
+                    cell_variant_count[cell] += 1
+                    cell_variant_ids[cell].append(site_id)
+
+    out_file = os.path.join(
+        OUT_BASE,
+        f"{sample}_cellSNP_filtered_cell_variant_count.tsv"
+    )
+    with open(out_file, "w", newline="") as out:
+        writer = csv.writer(out, delimiter="\t")
+        writer.writerow(["sample", "cell", "n_variants"])
+        for cell in cell_barcodes:
+            writer.writerow([
+                sample,
+                cell,
+                cell_variant_count.get(cell, 0)
+            ])
+
+    detail_file = os.path.join(OUT_BASE,f"{sample}_cellSNP_filtered_cell_variant_detail.tsv")
+    with open(detail_file, "w", newline="") as out:
+        writer = csv.writer(out, delimiter="\t")
+        writer.writerow(["sample", "cell", "variant_id"])
+        for cell in cell_barcodes:
+            for variant_id in cell_variant_ids.get(cell, []):
+                writer.writerow([sample,cell,variant_id])
+
+    print(f"{sample}: total cell VCF sites scanned = {n_total_sites}")
+    print(f"{sample}: matched first-round sites = {n_round1_sites}")
+    print(f"{sample}: final second-round sites = {n_round2_sites}")
+    print(f"{sample}: output = {out_file}")
+
+for sample in samples:
+    count_cell_variants(sample)
+```
+
+</details>
+  
+<details>
+<summary>10x cell-type level</summary>
+
+```{bash,eval=FALSE}
+#!/bin/bash
+export PATH=/home/tantingting/scmut/tools:$PATH
+ref_genome="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+samples=(
+  "Acral1_SRR20791206"
+  "Acral2_SRR20791205"
+  "Acral3pre_SRR20791203"
+  "Acral3post_SRR20791202"
+  "Acral4_SRR20791201"
+  "Cutaneous1_SRR20791198"
+  "Cutaneous1Lym_SRR20791196"
+  "Cutaneous2_SRR20791197"
+)
+
+celltypes=("Melanoma" "T")
+
+for sample in "${samples[@]}"; do
+    echo ">>> Processing sample: ${sample}"
+
+    for ct in "${celltypes[@]}"; do
+        echo "---- Cell type: ${ct}"
+
+        BAM="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/scomatic/${sample}/${sample}.${ct}.bam"
+        OUT_DIR="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/cellsnp_type/${sample}_${ct}"
+
+        echo "     BAM: ${BAM}"
+        echo "     OUT: ${OUT_DIR}"
+
+        if [[ ! -f "${BAM}" ]]; then
+            echo "ERROR: BAM not found: ${BAM}"
+            continue
+        fi
+
+        memusg -t cellsnp-lite \
+            -s "${BAM}" \
+            -O "${OUT_DIR}" \
+            -p 16 \
+            --minMAF 0.05 \
+            --minCOUNT 10 \
+            --refseq "${ref_genome}" \
+            --UMItag UB \
+            --cellTAG None \
+            --gzip \
+            --genotype
+
+
+        echo "---- Finished ${sample} ${ct}"
+    done
+done
+
+echo ">>> All done."
+```
+
+
+</details>
+  
+<details>
+<summary>Smart-seq2</summary>
+
+**calling:**
+```{bash,eval=FALSE}
+export PATH=/home/tantingting/scmut/tools:$PATH
+SAMPLE=${1:?Usage: bash run_cellsnp_one_sample.sh SAMPLE}
+MANIFEST=/mnt/storage/tantingting/scmut_smart/bam/star_qc_unique_ge10k_scrna_sample_wes.tsv
+REF=/home/tantingting/scmut/ref/bwa_ref/genome.fa
+THREADS=16
+
+#############################################
+# Determine the dataset
+#############################################
+
+if [[ $SAMPLE == PT* ]]; then
+    DATASET=1_TNBC
+
+    BAMLIST_ALL=/mnt/storage/tantingting/scmut_smart/bam/1_TNBC_scRNA_all.bamlist
+    CELLS_ALL=/mnt/storage/tantingting/scmut_smart/bam/1_TNBC_scRNA_all.cells.tsv
+
+elif [[ $SAMPLE == BC* ]]; then
+    DATASET=2_BRCA
+
+    BAMLIST_ALL=/mnt/storage/tantingting/scmut_smart/bam/2_BRCA_scRNA_all.bamlist
+    CELLS_ALL=/mnt/storage/tantingting/scmut_smart/bam/2_BRCA_scRNA_all.cells.tsv
+
+else
+    echo "Unknown sample."
+    exit 1
+fi
+
+#############################################
+# Define output directories and files
+#############################################
+
+OUTDIR=/mnt/storage/tantingting/scmut_smart/vcf/${DATASET}_scRNA/cellsnp_rerun/${SAMPLE}
+mkdir -p ${OUTDIR}
+
+SRR_LIST=${OUTDIR}/${SAMPLE}.srr
+BAMLIST=${OUTDIR}/${SAMPLE}.bamlist
+CELLS=${OUTDIR}/${SAMPLE}.cells.tsv
+
+#############################################
+# Extract cell SRR IDs from the manifest
+#############################################
+
+awk -v s="$SAMPLE" '
+NR>1 && $2==s{
+    print $1
+}
+' ${MANIFEST} > ${SRR_LIST}
+
+N=$(wc -l < ${SRR_LIST})
+
+echo "Sample : ${SAMPLE}"
+echo "Cells  : ${N}"
+
+#############################################
+# Extract corresponding BAM files from the
+# combined BAM list
+#############################################
+
+> ${BAMLIST}
+
+while read SRR
+do
+    grep "/${SRR}_sortmd.bam$" ${BAMLIST_ALL} >> ${BAMLIST}
+done < ${SRR_LIST}
+
+#############################################
+# Extract corresponding cell IDs from the
+# combined cell list
+#############################################
+
+grep -Fxf ${SRR_LIST} ${CELLS_ALL} > ${CELLS}
+
+echo
+echo "bam number : $(wc -l < ${BAMLIST})"
+echo "cell number: $(wc -l < ${CELLS})"
+echo
+
+
+memusg -t cellsnp-lite \
+    -S ${BAMLIST} \
+    -i ${CELLS} \
+    -O ${OUTDIR} \
+    -p ${THREADS} \
+    --chrom 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,X,Y,M \
+    --cellTAG None \
+    --UMItag None \
+    --minCOUNT 10 \
+    --minMAF 0.01 \
+    --refseq ${REF} \
+    --gzip \
+    --genotype
+
+echo
+echo "Done."
+```
+
+**filtering:**
+
+```{bash,eval=FALSE}
+#!/usr/bin/env bash
+# Usage: bash split_cellsnp_sample.sh BC01
+#        bash split_cellsnp_sample.sh PT081
+
+SAMPLE=${1:-}
+MANIFEST=/mnt/storage/tantingting/scmut_smart/bam/star_qc_unique_ge10k_scrna_sample_wes.tsv
+CHR_MAP=/home/tantingting/scmut/ref/bwa_ref/chr_map22.txt
+BASE=/mnt/storage/tantingting/scmut_smart/vcf
+
+# Determine cohort and output directory
+if [[ $SAMPLE == PT* ]]; then
+    COHORT=1_TNBC
+    OUTDIR=${BASE}/1_TNBC_scRNA/cellsnp_rerun/per_srr_vcf
+    mkdir -p "$OUTDIR"
+elif [[ $SAMPLE == BC* ]]; then
+    COHORT=2_BRCA
+    OUTDIR=${BASE}/2_BRCA_scRNA/cellsnp_rerun/per_srr_vcf
+    mkdir -p "$OUTDIR"
+else
+    echo "[ERROR] Unknown sample: $SAMPLE"
+    exit 1
+fi
+
+# Define input VCF
+INPUT_DIR=${BASE}/${COHORT}_scRNA/cellsnp_rerun/${SAMPLE}
+INPUT_VCF=${INPUT_DIR}/cellSNP.cells.vcf.gz
+
+if [[ ! -f "$INPUT_VCF" ]]; then
+    echo "[ERROR] Cannot find: $INPUT_VCF"
+    exit 1
+fi
+
+echo "======================================="
+echo "Sample : $SAMPLE"
+echo "VCF    : $INPUT_VCF"
+echo "Output : $OUTDIR"
+echo "======================================="
+
+# Extract SRR IDs and generate individual cell VCFs
+awk -v sample="$SAMPLE" '
+NR>1 && $2==sample {print $1}
+' "$MANIFEST" |
+while read SRR; do
+    echo "[$SRR]"
+    OUT=${OUTDIR}/${SRR}.cellSNP.filtered.vcf.gz
+
+    # Skip previously completed files
+    if [[ -s "$OUT" && -s "${OUT}.tbi" ]]; then
+        echo "  already exists"
+        continue
+    fi
+
+    # Extract and filter variants for each cell
+    bcftools view \
+        -s "$SRR" \
+        -Ou \
+        "$INPUT_VCF" |
+    bcftools view \
+        -i 'FMT/GT!="0/0" && FMT/GT!="0|0" && FMT/GT!="." && FMT/GT!="./." && FMT/GT!=".|." && FMT/DP>10 && FMT/AD/FMT/DP>0.05' \
+        -Ou |
+    bcftools annotate \
+        --rename-chrs "$CHR_MAP" \
+        -Oz \
+        -o "$OUT"
+
+    tabix -f -p vcf "$OUT"
+    echo "  done"
+done
+
+echo "Finished: $SAMPLE"
+```
+
+## SAMtools
+
+SAMtools/BCFtools provides a pileup-based framework for identifying SNVs and indels from aligned sequencing reads.
+
+**Reference:** [SAMtools/BCFtools (GigaScience, 2021)](https://www.htslib.org/)
+
+</details>
+  
+<details>
+<summary>10x pooled level</summary>
+  
+**calling:**
+  
+```{bash,eval=FALSE}
+export PATH=/home/tantingting/scmut/tools:$PATH
+ref_genome="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+samples=("Acral1_SRR20791206" "Acral2_SRR20791205" "Acral3pre_SRR20791203" "Acral3post_SRR20791202" "Acral4_SRR20791201" "Cutaneous1_SRR20791198" "Cutaneous1Lym_SRR20791196" "Cutaneous2_SRR20791197" )
+
+for sample in "${samples[@]}"
+do
+    BAM="/mnt/storage/tantingting/scmut/bam/2_melanoma_scRNA/${sample}/outs/possorted_genome_bam.bam"
+    OUT_DIR="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/samtools_pool/${sample}"
+    VCF_GZ="${OUT_DIR}/${sample}.vcf.gz"
+    echo "Processing sample: ${sample}"
+    mkdir -p "${OUT_DIR}"
+	memusg -t bash -c '
+		bcftools mpileup -Q 20 -q 20 -A -x -Ou --threads 16 -f "'"$ref_genome"'" "'"$BAM"'" |
+		bcftools call --threads 16 -mv -Oz -o "'"$VCF_GZ"'"
+	'
+done
+```
+
+**filtering:**
+
+```{bash,eval=FALSE}
+POOL_DIR=$1
+REF="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+OUT_DIR="${POOL_DIR}/filter"
+mkdir -p "${OUT_DIR}"
+
+echo "======================================"
+echo "Input directory : ${POOL_DIR}"
+echo "Output directory: ${OUT_DIR}"
+echo "======================================"
+
+for SAMPLE_DIR in "${POOL_DIR}"/*; do
+    sample=$(basename "${SAMPLE_DIR}")
+    # Skip the filter directory itself
+    if [ "${sample}" = "filter" ]; then
+        continue
+    fi
+
+    INPUT_VCF="${SAMPLE_DIR}/${sample}.vcf.gz"
+
+    if [ ! -f "${INPUT_VCF}" ]; then
+        echo "[WARN] Skip ${sample}: ${INPUT_VCF} not found"
+        continue
+    fi
+
+    OUTPUT_VCF="${OUT_DIR}/${sample}_PASS.vcf.gz"
+
+    if [ ! -f "${INPUT_VCF}.tbi" ] && [ ! -f "${INPUT_VCF}.csi" ]; then
+        echo "[INFO] Indexing ${sample} ..."
+        bcftools index -t "${INPUT_VCF}"
+    fi
+
+    echo
+    echo "======================================"
+    echo "Processing ${sample}"
+    echo "======================================"
+
+    bcftools view \
+        -r chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY,chrM \
+        "${INPUT_VCF}" | \
+    bcftools norm \
+        -f "${REF}" \
+        -m -both | \
+    bcftools view \
+        -i '
+            FMT/GT!="0/0" &&
+            QUAL>20 &&
+            (
+                (INFO/DP4[2]+INFO/DP4[3]) /
+                (INFO/DP4[0]+INFO/DP4[1]+INFO/DP4[2]+INFO/DP4[3])
+            ) > 0.05 &&
+            (
+                (TYPE="snp"  && INFO/DP>10) ||
+                (TYPE!="snp" && INFO/DP>15)
+            )
+        ' \
+        -Oz \
+        -o "${OUTPUT_VCF}"
+
+    bcftools index -t "${OUTPUT_VCF}"
+    NVAR=$(bcftools view -H "${OUTPUT_VCF}" | wc -l)
+    echo "[INFO] ${sample}: ${NVAR} variants kept"
+
+done
+
+echo
+echo "======================================"
+echo "All samples finished"
+echo "Results saved in:"
+echo "${OUT_DIR}"
+echo "======================================"
+```
+
+</details>
+  
+<details>
+<summary>10x cell-type level</summary>
+
+```{bash,eval=FALSE}
+export PATH=/home/tantingting/scmut/tools:$PATH
+REF="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+
+samples=(
+  "Acral1_SRR20791206"
+  "Acral2_SRR20791205"
+  "Acral3pre_SRR20791203"
+  "Acral3post_SRR20791202"
+  "Acral4_SRR20791201"
+  "Cutaneous1_SRR20791198"
+  "Cutaneous1Lym_SRR20791196"
+  "Cutaneous2_SRR20791197"
+)
+
+celltypes=("Melanoma" "T")
+
+for sample in "${samples[@]}"; do
+    echo ">>> Processing sample: ${sample}"
+
+    for ct in "${celltypes[@]}"; do
+        echo "---- Cell type: ${ct}"
+
+        BAM="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/scomatic/${sample}/${sample}.${ct}.bam"
+        OUT_DIR="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/samtools_type"
+
+        VCF="${OUT_DIR}/${sample}_${ct}.vcf"
+        VCF_GZ="${VCF}.gz"
+
+        echo "     BAM: ${BAM}"
+        echo "     VCF: ${VCF_GZ}"
+
+        if [[ ! -f "${BAM}" ]]; then
+            echo "ERROR: BAM not found: ${BAM}"
+            continue
+        fi
+
+		memusg -t bash -c '
+			bcftools mpileup -Q 20 -q 20 -A -x -Ou --threads 16 -f "'"$REF"'" "'"$BAM"'" |
+			bcftools call --threads 16 -mv -Oz -o "'"$VCF_GZ"'" '
+
+        echo "---- Finished ${sample} ${ct}"
+    done
+done
+
+echo ">>> All done."
+```
+
+</details>
+  
+<details>
+<summary>Smart-seq2</summary>
+
+```{bash,eval=FALSE}
+export PATH=/home/tantingting/scmut/tools:$PATH
+
+dataset="$1"
+batch_file="$2"
+ref_genome="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+
+bam_dir="/mnt/storage/tantingting/scmut_smart/bam/${dataset}/md_bam"
+out_base="/mnt/storage/tantingting/scmut_smart/vcf/${dataset}/samtools"
+filter_dir="${out_base}/filter"
+
+mkdir -p "$out_base" "$filter_dir"
+
+while read -r sample; do
+
+    [[ -z "$sample" || "$sample" =~ ^# ]] && continue
+
+    bam="${bam_dir}/${sample}_sortmd.bam"
+    raw_vcf="${out_base}/${sample}.sam.vcf.gz"
+    pass_vcf="${filter_dir}/${sample}.sam_PASS.vcf.gz"
+
+    echo "========== ${dataset} | ${sample} =========="
+    [[ ! -f "$bam" ]] && echo "[WARN] Missing $bam" && continue
+    if [[ ! -f "$raw_vcf" || ! -f "${raw_vcf}.tbi" ]]; then
+        echo "[CALL] $sample"
+		
+		memusg -t bash -c '
+		bcftools mpileup -Q 20 -q 20 -A -x -Ou --threads 16 -f "'"$ref_genome"'" "'"$bam"'" |
+		bcftools call --threads 16 -mv -Oz -o "'"$raw_vcf"'"
+	'
+        tabix -p vcf "$raw_vcf"
+    else
+        echo "[SKIP CALL] $sample"
+    fi
+    if [[ ! -f "$pass_vcf" || ! -f "${pass_vcf}.tbi" ]]; then
+        echo "[FILTER] $sample"
+        bcftools view \
+        -r chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY,chrM \
+        "$raw_vcf" | \
+        bcftools norm -f "$ref_genome" -m -both | \
+        bcftools view -i '
+            FMT/GT!="0/0" &&
+            QUAL>20 &&
+            (INFO/DP4[2]+INFO/DP4[3])/(INFO/DP4[0]+INFO/DP4[1]+INFO/DP4[2]+INFO/DP4[3])>0.05 &&
+            (
+                (TYPE="snp"  && INFO/DP>10) ||
+                (TYPE!="snp" && INFO/DP>15)
+            )
+        ' -Oz -o "$pass_vcf"
+
+        tabix -p vcf "$pass_vcf"
+
+        echo "[INFO] Filtered VCF: $pass_vcf"
+        echo "[INFO] Kept sites: $(bcftools view -H "$pass_vcf" | wc -l)"
+
+    else
+        echo "[SKIP FILTER] $sample"
+        echo "[INFO] Kept sites: $(bcftools view -H "$pass_vcf" | wc -l)"
+    fi
+
+    echo "[DONE] $sample"
+
+done < "$batch_file"
+```
+
+## Varscan2
+
+VarScan2 identifies SNVs and indels from sequencing data using read depth, base quality, variant allele frequency, and statistical significance to distinguish variants from sequencing errors.
+
+The workflow included:
+
+- Preprocessing: Generate nucleotide-level pileup files from aligned BAM files using `samtools mpileup`.
+- Variant calling: Detect SNVs and indels using VarScan2 `mpileup2snp` and `mpileup2indel`, respectively.
+
+**Reference:** [VarScan2 (Genome Research, 2012)](https://github.com/dkoboldt/varscan)
+
+</details>
+  
+<details>
+<summary>10x pooled level</summary>
+  
+**calling:**
+  
+```{bash,eval=FALSE}
+export PATH=$PATH:/home/tantingting/scmut/tools
+chmod +x /home/tantingting/scmut/tools/memusg
+VARSCAN_JAR="/home/tantingting/scmut/tools/VarScan.v2.4.6.jar"
+REF_GENOME="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+IN_DIR="/mnt/storage/tantingting/scmut/bam/2_melanoma_scRNA"
+OUT_DIR="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/varscan2_pool"
+# ===========================================================
+
+# Create the output directory
+if [ ! -d "$OUT_DIR" ]; then
+    mkdir -p "$OUT_DIR"
+fi
+
+# Iterate over all samples
+for sample_path in ${IN_DIR}/*_SRR*; do
+
+    # Check whether the path is a directory
+    [ -d "$sample_path" ] || continue
+    # Extract sample name
+    sample_name=$(basename "$sample_path")
+    # Locate the BAM file
+    BAM="${sample_path}/outs/possorted_genome_bam.bam"
+    if [ ! -f "$BAM" ]; then
+        BAM="${sample_path}/possorted_genome_bam.bam"
+    fi
+    if [ ! -f "$BAM" ]; then
+        echo "Warning: BAM file not found -> $sample_name. Skipping."
+        continue
+    fi
+
+    # Create sample-specific output directory
+    SAMPLE_OUT="${OUT_DIR}/${sample_name}"
+    mkdir -p "$SAMPLE_OUT"
+
+    # Define the output VCF filename
+    VCF="${SAMPLE_OUT}/${sample_name}.vcf"
+
+    echo "--------------------------------------------------"
+    echo "Processing sample: ${sample_name}"
+
+    CMD_STRING="samtools mpileup -Q 20 -q 20 -f $REF_GENOME $BAM | \
+    java -jar $VARSCAN_JAR mpileup2snp \
+        --min-coverage 10 \
+        --output-vcf 1 \
+        --strand-filter 0 \
+        --p-value 0.05 \
+        --min-avg-qual 20 \
+        --min-var-freq 0.05 \
+        > $VCF"
+
+    memusg -t bash -c "$CMD_STRING"
+
+    if [ $? -eq 0 ]; then
+        echo "VarScan2 completed. Compressing VCF..."
+        gzip -f "$VCF"
+        echo "Output file: ${VCF}.gz"
+    else
+        echo "Error: VarScan2 failed for sample ${sample_name}!"
+    fi
+
+done
+
+echo "=================================================="
+echo "All tasks completed."
+```
+
+**filtering:**
+
+```{bash,eval=FALSE}
+POOL_DIR=$1
+REF="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+OUT_DIR="${POOL_DIR}/filter"
+mkdir -p "${OUT_DIR}"
+
+echo "======================================"
+echo "Input directory : ${POOL_DIR}"
+echo "Output directory: ${OUT_DIR}"
+echo "======================================"
+
+for SAMPLE_DIR in "${POOL_DIR}"/*; do
+
+    [ -d "${SAMPLE_DIR}" ] || continue
+
+    sample=$(basename "${SAMPLE_DIR}")
+
+    if [ "${sample}" = "filter" ]; then
+        continue
+    fi
+
+    INPUT_VCF="${SAMPLE_DIR}/${sample}.vcf.gz"
+
+    if [ ! -f "${INPUT_VCF}" ]; then
+        echo "[WARN] Skip ${sample}: ${INPUT_VCF} not found"
+        continue
+    fi
+
+    OUTPUT_VCF="${OUT_DIR}/${sample}_PASS.vcf.gz"
+
+	
+	echo "[INFO] Checking ${sample} VCF format..."
+
+	if ! bcftools index -f -t "${INPUT_VCF}" >/dev/null 2>&1; then
+
+		echo "[INFO] ${sample}: not BGZF, converting..."
+
+		TMP_VCF="${INPUT_VCF}.tmp"
+
+		gunzip -c "${INPUT_VCF}" | bgzip -c > "${TMP_VCF}"
+
+		mv "${TMP_VCF}" "${INPUT_VCF}"
+
+		bcftools index -f -t "${INPUT_VCF}"
+
+	fi
+	
+    echo
+    echo "======================================"
+    echo "Processing ${sample}"
+    echo "======================================"
+
+    bcftools view \
+        -r chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY,chrM \
+        "${INPUT_VCF}" | \
+    bcftools norm \
+        -f "${REF}" \
+        -m -both | \
+    bcftools view \
+        -i 'FMT/GT!="0/0" && FMT/DP>10 && FMT/AD/(FMT/RD+FMT/AD)>0.05'  -Oz \
+        -o "${OUTPUT_VCF}"
+
+    bcftools index -t "${OUTPUT_VCF}"
+    NVAR=$(bcftools view -H "${OUTPUT_VCF}" | wc -l)
+    echo "[INFO] ${sample}: ${NVAR} variants kept"
+done
+
+echo
+echo "======================================"
+echo "All samples finished"
+echo "Results saved in:"
+echo "${OUT_DIR}"
+echo "======================================"
+```
+
+</details>
+  
+<details>
+<summary>10x cell-type level</summary>
+  
+```{bash,eval=FALSE}
+#!/bin/bash
+export PATH=/home/tantingting/scmut/tools:$PATH
+REF="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+VARSCAN="/home/tantingting/scmut/tools/VarScan.v2.4.6.jar"
+
+samples=(
+  "Acral1_SRR20791206"
+  "Acral2_SRR20791205"
+  "Acral3pre_SRR20791203"
+  "Acral3post_SRR20791202"
+  "Acral4_SRR20791201"
+  "Cutaneous1_SRR20791198"
+  "Cutaneous1Lym_SRR20791196"
+  "Cutaneous2_SRR20791197"
+)
+
+celltypes=("Melanoma" "T")
+
+for sample in "${samples[@]}"; do
+    echo ">>> Processing sample: ${sample}"
+
+    for ct in "${celltypes[@]}"; do
+        echo "---- Cell type: ${ct}"
+
+        BAM="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/scomatic/${sample}/${sample}.${ct}.bam"
+        OUT_DIR="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/varscan2_type"
+        #mkdir -p "${OUT_DIR}"
+
+        VCF="${OUT_DIR}/${sample}_${ct}.vcf"
+        VCF_GZ="${VCF}.gz"
+
+        echo "     BAM: ${BAM}"
+        echo "     VCF: ${VCF_GZ}"
+
+        if [[ ! -f "${BAM}" ]]; then
+            echo "ERROR: BAM not found: ${BAM}"
+            continue
+        fi
+
+		memusg -t bash -c "
+		samtools mpileup -Q 20 -q 20 -f '${REF}'   '${BAM}' | \
+		java -jar '${VARSCAN}' mpileup2snp \
+		  --min-coverage 10 \
+		  --output-vcf 1 \
+		  --strand-filter 0 \
+		  --p-value 0.05 \
+		  --min-avg-qual 20 \
+		  --min-var-freq 0.05 \
+		  > '${VCF}'
+		"
+
+        bgzip -f "${VCF}"
+        tabix -f -p vcf "${VCF_GZ}"
+
+        echo "---- Finished ${sample} ${ct}"
+    done
+done
+
+echo ">>> All done."
+```
+
+</details>
+  
+<details>
+<summary>Smart-seq2</summary>
+```{bash,eval=FALSE}
+export PATH=/home/tantingting/scmut/tools:$PATH
+dataset="$1"
+batch_file="$2"
+
+ref_genome="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+varscan_jar="/home/tantingting/scmut/tools/VarScan.v2.4.6.jar"
+
+bam_dir="/mnt/storage/tantingting/scmut_smart/bam/${dataset}/md_bam"
+out_base="/mnt/storage/tantingting/scmut_smart/vcf/${dataset}/varscan2"
+filter_dir="${out_base}/filter"
+chr_list="chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY,chrM"
+
+mkdir -p "$out_base" "$filter_dir"
+
+while read -r sample; do
+    [[ -z "$sample" || "$sample" =~ ^# ]] && continue
+
+    bam="${bam_dir}/${sample}_sortmd.bam"
+    sample_out="${out_base}/${sample}"
+    raw_vcf="${sample_out}/${sample}.varscan2.vcf"
+    raw_vcfgz="${raw_vcf}.gz"
+    final_vcf="${filter_dir}/${sample}.varscan2_PASS.vcf.gz"
+
+    echo "========== ${dataset} | ${sample} =========="
+    [[ ! -f "$bam" ]] && echo "[WARN] Missing $bam" && continue
+    mkdir -p "$sample_out"
+
+    if [[ ! -f "$raw_vcfgz" || ! -f "${raw_vcfgz}.tbi" ]]; then
+        echo "[CALL] $sample"
+
+        memusg -t bash -c '
+          samtools mpileup -Q 20 -q 20 -f "'"$ref_genome"'" "'"$bam"'" | \
+          java -jar "'"$varscan_jar"'" mpileup2snp \
+            --min-coverage 10 \
+            --output-vcf 1 \
+            --strand-filter 0 \
+            --p-value 0.05 \
+            --min-avg-qual 20 \
+            --min-var-freq 0.05 \
+            > "'"$raw_vcf"'"
+        '
+
+        [[ ! -f "$raw_vcf" ]] && echo "[ERROR] CALL failed: $sample" && continue
+        bgzip -f "$raw_vcf"
+        tabix -f -p vcf "$raw_vcfgz"
+    else
+        echo "[SKIP CALL] $sample"
+    fi
+
+    if [[ ! -f "$final_vcf" || ! -f "${final_vcf}.tbi" ]]; then
+        echo "[FILTER] $sample"
+
+        bcftools view -r "$chr_list" "$raw_vcfgz" | \
+        bcftools norm -f "$ref_genome" -m -both | \
+        bcftools view -i '
+          FMT/GT!="0/0" &&
+          FMT/DP>10 &&
+          (FMT/AD / (FMT/RD + FMT/AD)) > 0.05
+        ' -Oz -o "$final_vcf"
+
+        tabix -f -p vcf "$final_vcf"
+
+        echo "[INFO] Filtered VCF: $final_vcf"
+        echo "[INFO] Kept sites: $(bcftools view -H "$final_vcf" | wc -l)"
+    else
+        echo "[SKIP FILTER] $sample"
+        echo "[INFO] Kept sites: $(bcftools view -H "$final_vcf" | wc -l)"
+    fi
+
+    echo "[DONE] $sample"
+
+done < "$batch_file"
+```
+
+## SComatic
+
+SComatic is a tool for detecting somatic mutations from single-cell RNA-seq and ATAC-seq data. It uses a beta-binomial statistical model to identify somatic variants across cell types without requiring matched normal samples.
+
+The workflow included:
+
+- BAM splitting: Split BAM files by cell type using cell-type annotations.
+
+- Base counting: Count nucleotide support for each cell type.
+
+- Variant calling: Merge base counts and identify candidate somatic variants.
+
+- Filtering: Apply RNA-editing and panel-of-normals (PoN) filters.
+
+- Post-processing: Convert cell-type-specific TSV files into sorted and indexed VCF files for downstream evaluation.
+
+**Reference:** [SComatic (Nature Biotechnology, 2024)](https://github.com/cortes-ciriano-lab/SComatic)
+
+</details>
+
+<details>
+<summary>10x cell-type level</summary>
+
+**calling:**
+
+```{bash,eval=FALSE}
+export PATH=/home/tantingting/scmut/tools:$PATH
+
+SCOMATIC=/home/tantingting/scmut/tools/SComatic
+ref_genome="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+samples=( "Acral1_SRR20791206" "Acral2_SRR20791205" "Acral3pre_SRR20791203" "Acral3post_SRR20791202" "Acral4_SRR20791201" "Cutaneous1_SRR20791198" "Cutaneous1Lym_SRR20791196" "Cutaneous2_SRR20791197" )
+editing=$SCOMATIC/RNAediting/AllEditingSites.hg38.txt
+PON=$SCOMATIC/PoNs/PoN.scRNAseq.hg38.tsv
+	
+for sample in "${samples[@]}"
+do
+    echo "===================="
+    echo "Processing ${sample}"
+    echo "===================="
+
+    # ---------- 1. Split BAM by cell type ----------
+    BAM="/mnt/storage/tantingting/scmut/bam/2_melanoma_scRNA/${sample}/outs/${sample}_map.bam"
+    
+	META="/mnt/storage/tantingting/scmut/bam/2_melanoma_scRNA/${sample}/outs/filtered_feature_bc_matrix/${sample}_celltype_annotation.tsv"
+    OUTDIR="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/scomatic/${sample}"
+
+    mkdir -p "$OUTDIR"
+
+    echo "BAM: $BAM"
+    echo "META: $META"
+    echo "OUTDIR: $OUTDIR"
+
+    memusg -t python $SCOMATIC/scripts/SplitBam/SplitBamCellTypes.py \
+        --bam "$BAM" \
+        --meta "$META" \
+        --id "$sample" \
+        --max_nM 5 \
+        --max_NH 1 \
+        --outdir "$OUTDIR"
+
+    # ---------- 2. BaseCellCounter ----------
+    output_dir2=$OUTDIR/Step2_BaseCellCounts
+    mkdir -p "$output_dir2"
+
+    for bam in $OUTDIR/*.bam
+    do
+        cell_type=$(basename "$bam" | awk -F'.' '{print $(NF-1)}')
+
+        temp=$output_dir2/temp_${cell_type}
+        mkdir -p "$temp"
+
+        memusg -t python \
+            $SCOMATIC/scripts/BaseCellCounter/BaseCellCounter.py \
+            --bam "$bam" \
+            --ref "$ref_genome" \
+            --chrom all \
+            --out_folder "$output_dir2" \
+            --min_bq 20 \
+            --tmp_dir "$temp" \
+            --nprocs 16 \
+            --min_mq 255 \
+            --min_af 0.05 \
+            --min_ac 2
+    done
+
+    # ---------- 3. Merge BaseCellCounts ----------
+    output_dir3=$OUTDIR/Step3_BaseCellCountsMerged
+    mkdir -p "$output_dir3"
+
+    memusg -t python $SCOMATIC/scripts/MergeCounts/MergeBaseCellCounts.py \
+        --tsv_folder "$output_dir2" \
+        --outfile ${output_dir3}/${sample}.BaseCellCounts.AllCellTypes.tsv
+
+    # ---------- 4. Variant Calling ----------
+    output_dir4=$OUTDIR/Step4_VariantCalling
+    mkdir -p "$output_dir4"
+
+    echo "Calling step1 for ${sample}"
+
+    memusg -t python $SCOMATIC/scripts/BaseCellCalling/BaseCellCalling.step1.py \
+        --infile ${output_dir3}/${sample}.BaseCellCounts.AllCellTypes.tsv \
+        --outfile ${output_dir4}/${sample} \
+        --ref $ref_genome \
+        --min_cell_types 1
+
+    echo "Calling step2 for ${sample}"
+
+    memusg -t python $SCOMATIC/scripts/BaseCellCalling/BaseCellCalling.step2.py \
+        --infile ${output_dir4}/${sample}.calling.step1.tsv \
+        --outfile ${output_dir4}/${sample} \
+        --editing $editing \
+        --pon $PON
+
+    echo "Finished ${sample}"
+done
+```
+
+**filtering:**
+
+```{python,eval=FALSE}
+import subprocess
+from pathlib import Path
+
+samples = ["Acral1_SRR20791206","Acral3pre_SRR20791203","Cutaneous1_SRR20791198","Acral2_SRR20791205","Acral4_SRR20791201","Cutaneous2_SRR20791197","Acral3post_SRR20791202","Cutaneous1Lym_SRR20791196" ]
+root = Path("/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/scomatic")
+
+contigs = [f"##contig=<ID=chr{i}>" for i in range(1, 23)] + [
+    "##contig=<ID=chrX>",
+    "##contig=<ID=chrY>",
+    "##contig=<ID=chrM>",
+]
+
+def write_vcf(infile: Path, outfile: Path, sample_name: str):
+    with infile.open() as fin, outfile.open("w") as fout:
+        fout.write("##fileformat=VCFv4.2\n")
+        fout.write("##source=SComatic_tsv_to_vcf\n")
+        for c in contigs:
+            fout.write(c + "\n")
+
+        fout.write('##FILTER=<ID=PASS,Description="All filters passed">\n')
+        fout.write('##INFO=<ID=Dp,Number=1,Type=Integer,Description="Depth">\n')
+        fout.write('##INFO=<ID=Nc,Number=1,Type=Integer,Description="Cell count">\n')
+        fout.write('##INFO=<ID=Bc,Number=1,Type=String,Description="ALT reads">\n')
+        fout.write('##INFO=<ID=Cc,Number=1,Type=Integer,Description="ALT cells">\n')
+        fout.write('##INFO=<ID=VAF,Number=1,Type=Float,Description="VAF">\n')
+        fout.write('##INFO=<ID=CCF,Number=1,Type=Float,Description="CCF">\n')
+        fout.write('##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n')
+        fout.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t" + sample_name + "\n")
+
+        for line in fin:
+            if line.startswith("#"):
+                continue
+
+            x = line.strip().split()
+            if len(x) < 26:
+                continue
+
+            chrom, pos, ref, alt = x[0], x[1], x[3], x[4]
+            filt = "PASS"
+
+            info = ";".join([
+                f"Dp={x[10]}",
+                f"Nc={x[11]}",
+                f"Bc={x[12]}",
+                f"Cc={x[13]}",
+                f"VAF={x[14]}",
+                f"CCF={x[15]}"
+            ])
+
+            fmt = "GT"
+            sample = "0/1"
+
+            fout.write(
+                "\t".join([
+                    chrom,pos,".",ref,alt,".",filt,info,fmt,sample
+                ]) + "\n"
+            )
+
+def run(cmd):
+    print(" ".join(map(str, cmd)))
+    subprocess.run(cmd, check=True)
+
+
+for s in samples:
+    sample_dir = root / s / "Step4_VariantCalling"
+    if not sample_dir.exists():
+        continue
+
+    print(f">>> {s}")
+    for tsv in [sample_dir / "Melanoma.tsv",
+                sample_dir / "T.tsv"]:
+
+        if not tsv.exists():
+            continue
+
+        celltype = tsv.stem
+        sample_name = f"{s}_{celltype}"
+
+        vcf = sample_dir / f"{celltype}.vcf"
+        sorted_vcf = sample_dir / f"{celltype}.sorted.vcf"
+        gz = sample_dir / f"{celltype}.vcf.gz"
+
+        write_vcf(tsv, vcf, sample_name)
+
+        run(["bcftools", "sort", str(vcf), "-o", str(sorted_vcf)])
+        sorted_vcf.replace(vcf)
+
+        run(["bgzip", "-f", str(vcf)])
+        run(["tabix", "-f", "-p", "vcf", str(gz)])
+
+        print(f"  {celltype} done")
+```
+
+## Monovar
+
+Monovar is a probabilistic caller designed for single-cell DNA sequencing data. It jointly analyzes cells while accounting for sequencing errors and allelic dropout.
+
+The workflow included:
+
+- Preprocessing: Prepare cell-type-specific BAM files.
+- Variant calling: Identify SNVs using `samtools mpileup` and Monovar.
+- Filtering: Retain PASS variants with non-reference genotypes.
+
+**Reference:** [Monovar (Nature Methods, 2016)](https://github.com/KChen-lab/MonoVar)
+
+
+</details>
+  
+<details>
+<summary>10x cell-type level</summary>
+  
+**calling:**
+  
+```{bash,eval=FALSE}
+###===== cell_type_bam.txt =====##
+/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/scomatic/Acral1_SRR20791206/Acral1_SRR20791206.Melanoma.bam
+/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/scomatic/Acral1_SRR20791206/Acral1_SRR20791206.T.bam
+```
+
+```{bash,eval=FALSE}
+export PATH=/home/tantingting/scmut/tools:$PATH
+
+sample=$1
+REF_GENOME="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+BAM_LIST="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/monovar_type/cell_type_bam_${sample}.txt"
+OUT_DIR="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/monovar_type"
+OUT_VCF="${OUT_DIR}/monovar_${sample}.vcf"
+
+mkdir -p "${OUT_DIR}"
+
+echo ">>> Sample: ${sample}"
+echo ">>> BAM list: ${BAM_LIST}"
+echo ">>> Output VCF: ${OUT_VCF}"
+
+memusg -t bash -c "
+samtools mpileup -BQ0 -d 10000 -f ${REF_GENOME} -q 20 -b ${BAM_LIST} | \
+/home/tantingting/scmut/tools/MonoVar/src/monovar.py \
+    -p 0.002 -a 0.2 -t 0.05 -m 16 \
+    -f ${REF_GENOME} \
+    -b ${BAM_LIST} \
+    -o ${OUT_VCF}
+"
+
+echo ">>> ${sample} Done."
+```
+
+**filtering:**
+
+```{bash,eval=FALSE}
+#!/bin/bash
+
+REF=/home/tantingting/scmut/ref/bwa_ref/genome.fa
+MONO_BASE=/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/monovar_type
+WORK_BASE=${MONO_BASE}/filter
+
+mkdir -p "$WORK_BASE"
+
+CHR_LIST="chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY,chrM"
+
+for VCF in ${MONO_BASE}/monovar_*.vcf; do
+
+    sample=$(basename "$VCF" .vcf)
+    sample=${sample#monovar_}
+
+    s="$sample"
+
+    echo
+    echo "======================================"
+    echo "Processing ${s}"
+    echo "======================================"
+
+    ####################################
+    # bgzip + index
+    ####################################
+
+    if [[ ! -f "${VCF}.gz" ]]; then
+        bgzip -f "$VCF"
+    fi
+
+    if [[ ! -f "${VCF}.gz.tbi" ]]; then
+        tabix -f -p vcf "${VCF}.gz"
+    fi
+
+    ####################################
+    # sample list
+    ####################################
+
+    samples=$(bcftools query -l "${VCF}.gz")
+
+    for samp in $samples; do
+
+        echo "[CELLTYPE] $samp"
+
+        base=$(basename "$samp" .bam)
+        name=$(echo "$base" | sed 's/\./_/g')
+        out_vcf="${WORK_BASE}/${name}_PASS.vcf.gz"
+
+        ####################################
+        # filtering
+        ####################################
+		bcftools view -s "$samp" -r "$CHR_LIST" "${VCF}.gz" | \
+		bcftools norm -f "$REF" -m -both | \
+		bcftools view \
+			-i '
+				FILTER="PASS" &&
+				FMT/GT!="0/0" &&
+				FMT/GT!="./." &&
+				(FMT/AD[0:0] + FMT/AD[0:1]) > 0 &&
+				(FMT/AD[0:1] / (FMT/AD[0:0] + FMT/AD[0:1])) > 0.05 &&
+				(
+					(TYPE="snp"  && FMT/DP>10) ||
+					(TYPE!="snp" && FMT/DP>15)
+				)
+			' \
+			-Oz -o "$out_vcf"
+        tabix -f -p vcf "$out_vcf"
+        echo "[INFO] PASS sites: $(bcftools view -H "$out_vcf" | wc -l)"
+    done
+done
+```
+
+</details>
+  
+<details>
+<summary>Smart-seq2</summary>
+**calling:**
+```{bash,eval=FALSE}
+export PATH=/home/tantingting/scmut/tools:$PATH
+
+dataset="$1"
+batch_file="$2"
+
+REF_GENOME="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+
+BAM_DIR="/mnt/storage/tantingting/scmut_smart/bam/${dataset}/md_bam"
+OUT_DIR="/mnt/storage/tantingting/scmut_smart/vcf/${dataset}/monovar"
+
+mkdir -p "${OUT_DIR}"
+
+while read -r sample; do
+    [[ -z "$sample" || "$sample" =~ ^# ]] && continue
+
+    BAM="${BAM_DIR}/${sample}_sortmd.bam"
+
+    if [[ ! -f "$BAM" ]]; then
+        echo "[ERROR] BAM not found: $BAM"
+        continue
+    fi
+
+    TXT="${OUT_DIR}/${sample}.txt"
+    VCF="${OUT_DIR}/${sample}.vcf"
+    LOG="${OUT_DIR}/${sample}.memusg.log"
+
+    echo "========== ${dataset} | ${sample} =========="
+
+    if [[ -f "$VCF" ]]; then
+        echo "[SKIP] ${sample}"
+        continue
+    fi
+
+    echo "$BAM" > "$TXT"
+
+    memusg -t bash -c "
+    samtools mpileup -BQ0 -d 10000 -f '${REF_GENOME}' -q 20 -b '${TXT}' | \
+    /home/tantingting/scmut/tools/MonoVar/src/monovar.py \
+      -p 0.002 -a 0.2 -t 0.05 -m 16 \
+      -f '${REF_GENOME}' -b '${TXT}' -o '${VCF}'
+    " 2> "${LOG}"
+
+
+    if [[ $? -ne 0 ]]; then
+        echo "[FAILED] ${sample}"
+        continue
+    fi
+
+    echo "[DONE] ${sample}"
+    echo
+
+done < "$batch_file"
+```
+
+**filtering:**
+
+```{bash,eval=FALSE}
+REF="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+MANIFEST="/mnt/storage/tantingting/scmut_smart/bam/star_qc_unique_ge10k_scrna_sample_wes.tsv"
+
+TNBC_DIR="/mnt/storage/tantingting/scmut_smart/vcf/1_TNBC_scRNA/monovar"
+BRCA_DIR="/mnt/storage/tantingting/scmut_smart/vcf/2_BRCA_scRNA/monovar"
+STAT_DIR="/mnt/storage/tantingting/scmut_smart/vcf/filter_stat"
+
+CHR_LIST="chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY,chrM"
+
+ALL_LONG="${STAT_DIR}/Monovar_Smartseq2_all_cell_snv_long.tsv"
+ALL_COUNT="${STAT_DIR}/Monovar_Smartseq2_all_cell_variant_count.tsv"
+MISSING="${STAT_DIR}/Monovar_Smartseq2_missing_vcf.tsv"
+
+echo -e "tool\tcohort\tsample\tcell\tsnv" > "$ALL_LONG"
+echo -e "cohort\tsample\tcell\tn_variants\tcell_id\tWES_SRR" > "$ALL_COUNT"
+echo -e "scRNA_SRR\tsample\tWES_SRR\treason" > "$MISSING"
+
+# Initialize cohort-specific merged output files for TNBC and BRCA
+for DIR in "$TNBC_DIR" "$BRCA_DIR"; do
+  mkdir -p "${DIR}/filter"
+  echo -e "tool\tcohort\tsample\tcell\tsnv" > "${DIR}/Monovar_all_cells_snv_long.tsv"
+  echo -e "cohort\tsample\tcell\tn_variants\tcell_id\tWES_SRR" > "${DIR}/Monovar_all_cells_variant_count.tsv"
+done
+
+# Process only Smart-seq2 cells listed in the manifest
+while IFS=$'\t' read -r SCRNA_SRR SAMPLE WES_SRR; do
+
+  if [[ -f "${TNBC_DIR}/${SCRNA_SRR}.vcf" ]]; then
+    DIR="$TNBC_DIR"
+    COHORT="TNBC"
+  elif [[ -f "${TNBC_DIR}/${SCRNA_SRR}.vcf.gz" ]]; then
+    DIR="$TNBC_DIR"
+    COHORT="TNBC"
+  elif [[ -f "${BRCA_DIR}/${SCRNA_SRR}.vcf" ]]; then
+    DIR="$BRCA_DIR"
+    COHORT="BRCA"
+  elif [[ -f "${BRCA_DIR}/${SCRNA_SRR}.vcf.gz" ]]; then
+    DIR="$BRCA_DIR"
+    COHORT="BRCA"
+  else
+    echo "[WARNING] Monovar VCF not found: ${SCRNA_SRR}"
+    echo -e "${SCRNA_SRR}\t${SAMPLE}\t${WES_SRR}\tVCF_not_found" >> "$MISSING"
+    continue
+  fi
+
+  #RAW_VCF="${DIR}/${SCRNA_SRR}.vcf"
+  RAW_GZ="${DIR}/${SCRNA_SRR}.vcf.gz"
+
+  OUTDIR="${DIR}/filter"
+  FINAL="${OUTDIR}/${SCRNA_SRR}_PASS.vcf.gz"
+  VIEW_LOG="${OUTDIR}/${SCRNA_SRR}.view.log"
+  NORM_LOG="${OUTDIR}/${SCRNA_SRR}.norm.log"
+
+  DATASET_LONG="${DIR}/Monovar_all_cells_snv_long.tsv"
+  DATASET_COUNT="${DIR}/Monovar_all_cells_variant_count.tsv"
+
+  echo "========== ${COHORT} | ${SAMPLE} | ${SCRNA_SRR} =========="
+
+  # Monovar variant filtering criteria:
+  # 1. Retain variants on the specified chromosomes
+  # 2. Exclude homozygous reference (0/0) and missing (./.) genotypes
+  # 3. Require total allelic depth (AD) > 0 and VAF > 0.05
+  # 4. Require DP > 10 for SNPs and DP > 15 for non-SNP variants
+  # 5. Normalize variants against the reference genome and split multiallelic sites
+  bcftools view -r "$CHR_LIST" "$RAW_GZ" -Ou |
+     bcftools view -i '
+       FMT/GT!="0/0" &&
+       FMT/GT!="./." &&
+       (FMT/AD[0:0] + FMT/AD[0:1]) > 0 &&
+       (FMT/AD[0:1] / (FMT/AD[0:0] + FMT/AD[0:1])) > 0.05 &&
+       (
+         (TYPE="snp" && FMT/DP>10) ||
+         (TYPE!="snp" && FMT/DP>15)
+       )
+     ' -Ou |
+     bcftools norm -f "$REF" -m -both -Oz -o "$FINAL"
+
+  bcftools index -f -t "$FINAL"
+  N=$(bcftools view -H "$FINAL" | wc -l)
+
+  CELL_ID="${SAMPLE}_${SCRNA_SRR}"
+  COUNT_LINE="${COHORT}\t${SAMPLE}\t${SCRNA_SRR}\t${N}\t${CELL_ID}\t${WES_SRR}"
+
+  echo -e "$COUNT_LINE" >> "$DATASET_COUNT"
+  echo -e "$COUNT_LINE" >> "$ALL_COUNT"
+
+  if [[ "$N" -gt 0 ]]; then
+    bcftools query \
+      -f "Monovar\t${COHORT}\t${SAMPLE}\t${SCRNA_SRR}\t%CHROM:%POS:%REF:%ALT\n" \
+      "$FINAL" >> "$DATASET_LONG"
+
+    bcftools query \
+      -f "Monovar\t${COHORT}\t${SAMPLE}\t${SCRNA_SRR}\t%CHROM:%POS:%REF:%ALT\n" \
+      "$FINAL" >> "$ALL_LONG"
+  fi
+
+  echo "[DONE] ${SCRNA_SRR}: ${N} variants"
+
+done < <(
+  awk 'BEGIN{OFS="\t"} NR>1 && NF>=3 {print $1,$2,$3}' "$MANIFEST"
+)
+```
+
+## scAllele
+
+scAllele detects SNVs, indels, and allele-specific splicing events from scRNA-seq data using local reassembly of expressed haplotypes.
+
+The workflow included:
+  
+- BAM splitting: Manually split scRNA-seq BAM files into individual cell-level BAM files.
+- Variant calling and filtering
+- Post-processing: Merge filtered variants across cells for downstream evaluation.
+
+**Reference:** [scAllele (Science Advances, 2022)](https://github.com/gxiaolab/scAllele/)
+
+</details>
+
+<details>
+<summary>10x single-cell level</summary>
+
+**calling:**
+
+```{bash,eval=FALSE}
+export PATH=/home/tantingting/scmut/tools:$PATH
+REF_GENOME="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+samples=( "Acral1_SRR20791206" "Acral2_SRR20791205" "Acral3post_SRR20791202" "Acral3pre_SRR20791203" )
+
+for SAMPLE in "${samples[@]}"; do
+
+    BAM_DIR="/mnt/storage/tantingting/scmut/bam/2_melanoma_scRNA/${SAMPLE}/outs/splitbam"
+    OUT_DIR="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/scallele/${SAMPLE}"
+
+    mkdir -p "${OUT_DIR}"
+
+    echo "=============================="
+    echo ">>> Processing sample: ${SAMPLE}"
+    echo ">>> Input BAM directory: ${BAM_DIR}"
+    echo ">>> Output directory: ${OUT_DIR}"
+    echo "=============================="
+
+    # Iterate over all BAM files in the splitbam directory
+    for bam in ${BAM_DIR}/*.bam; do
+        [ -f "$bam" ] || continue
+
+        bam_name=$(basename "$bam" .bam)
+        out_prefix="${OUT_DIR}/${bam_name}"
+
+        echo "---- Running scAllele on: ${bam_name}"
+		
+		if [ ! -f "${bam}.bai" ]; then
+            echo "---- Indexing BAM..."
+            samtools index -@ 4 "$bam"
+        fi
+
+        memusg -t scAllele --AB 0.05 --min-map_quality 20 \
+            -b "$bam" \
+            -g "$REF_GENOME" \
+            -o "$out_prefix"
+
+        echo "---- Finished: ${bam_name}"
+    done
+
+    echo ">>> Done for sample: ${SAMPLE}"
+    echo
+done
+```
+
+**filtering:**
+
+```{bash,eval=FALSE}
+DIR="/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/scallele"
+REF="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+samples=("Acral1_SRR20791206" "Acral2_SRR20791205" "Acral3pre_SRR20791203" "Acral3post_SRR20791202" "Acral4_SRR20791201" "Cutaneous1_SRR20791198" "Cutaneous1Lym_SRR20791196" "Cutaneous2_SRR20791197")
+CHR_LIST="chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22"
+
+ALL_LONG="${DIR}/scAllele_all_samples_cell_snv_long.tsv"
+ALL_COUNT="${DIR}/scAllele_all_samples_cell_variant_count.tsv"
+
+echo -e "tool\tsample\tcell\tsnv" > "$ALL_LONG"
+echo -e "sample\tcell\tn_variants\tcell_id" > "$ALL_COUNT"
+
+for s in "${samples[@]}"; do
+  echo "========== Processing $s =========="
+
+  INDIR="${DIR}/${s}"
+  OUTDIR="${DIR}/${s}/PASS_norm_chr1_22"
+  mkdir -p "$OUTDIR"
+
+  SAMPLE_LONG="${OUTDIR}/${s}_cell_snv_long.tsv"
+  SAMPLE_COUNT="${OUTDIR}/${s}_cell_variant_count.tsv"
+
+  echo -e "tool\tsample\tcell\tsnv" > "$SAMPLE_LONG"
+  echo -e "sample\tcell\tn_variants\tcell_id" > "$SAMPLE_COUNT"
+
+  for RAW in "${INDIR}"/*.vcf; do
+    [[ -e "$RAW" ]] || continue
+
+    base=$(basename "$RAW" .vcf)
+    cell=${base#${s}_map_}
+
+    echo "--- Processing $cell ---"
+
+    TMP_BODY="${OUTDIR}/${base}.body.vcf"
+    TMP_FULL="${OUTDIR}/${base}.full.vcf"
+    TMP_GZ="${OUTDIR}/${base}.full.vcf.gz"
+    FINAL="${OUTDIR}/${base}_PASS_norm_chr1_22.vcf.gz"
+
+    # 1. Retain only the standard 10 VCF columns and enforce tab-delimited formatting
+    awk 'BEGIN{OFS="\t"} !/^#/ && NF==10 {
+      print $1,$2,$3,$4,$5,$6,$7,$8,$9,$10
+    }' "$RAW" > "$TMP_BODY"
+
+    # 2. Generate a standard VCF header with tab-delimited column names
+    {
+      echo "##fileformat=VCFv4.2"
+      echo "##source=scAllele"
+      echo '##FILTER=<ID=PASS,Description="All filters passed">'
+      echo '##FILTER=<ID=LowQual,Description="Low quality variant">'
+      echo '##INFO=<ID=varEnd,Number=1,Type=Integer,Description="Variant end position">'
+      echo '##INFO=<ID=varGroup,Number=1,Type=String,Description="Variant group">'
+      echo '##INFO=<ID=varType,Number=1,Type=String,Description="Variant type">'
+      echo '##INFO=<ID=varLength,Number=1,Type=Integer,Description="Variant length">'
+      echo '##INFO=<ID=TandemRep,Number=1,Type=Integer,Description="Tandem repeat count">'
+      echo '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">'
+      echo '##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype quality">'
+      echo '##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">'
+      echo '##FORMAT=<ID=AC,Number=1,Type=Integer,Description="Alt count">'
+      echo '##FORMAT=<ID=RC,Number=1,Type=Integer,Description="Ref count">'
+      echo '##FORMAT=<ID=AB,Number=1,Type=Float,Description="Allele balance">'
+      echo '##FORMAT=<ID=RCL,Number=1,Type=Integer,Description="Read clipping length">'
+      printf "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSAMPLE\n"
+    } > "$TMP_FULL"
+
+    cat "$TMP_BODY" >> "$TMP_FULL"
+
+    bgzip -f -c "$TMP_FULL" > "$TMP_GZ"
+    tabix -f -p vcf "$TMP_GZ"
+
+    # 3. Retain PASS variants on chromosomes 1–22 and normalize the VCF
+    bcftools view \
+      -r "$CHR_LIST" \
+      -f PASS \
+      "$TMP_GZ" -Ou | \
+    bcftools norm \
+      -f "$REF" \
+      -m -both \
+      -Oz \
+      -o "$FINAL"
+
+    bcftools index -t "$FINAL"
+
+    n=$(bcftools view -H "$FINAL" | wc -l)
+
+    echo -e "${s}\t${cell}\t${n}\t${s}_${cell}" >> "$SAMPLE_COUNT"
+    echo -e "${s}\t${cell}\t${n}\t${s}_${cell}" >> "$ALL_COUNT"
+
+    if [[ "$n" -gt 0 ]]; then
+      bcftools query \
+        -f "scAllele\t${s}\t${cell}\t%CHROM:%POS:%REF:%ALT\n" \
+        "$FINAL" >> "$SAMPLE_LONG"
+
+      bcftools query \
+        -f "scAllele\t${s}\t${cell}\t%CHROM:%POS:%REF:%ALT\n" \
+        "$FINAL" >> "$ALL_LONG"
+    fi
+
+    rm -f "$TMP_BODY" "$TMP_FULL" "$TMP_GZ" "$TMP_GZ.tbi"
+
+  done
+
+  echo "[DONE] $s"
+done
+
+echo "========== ALL DONE =========="
+echo "[INFO] all count: $ALL_COUNT"
+echo "[INFO] all long:  $ALL_LONG"
+```
+
+```{R,eval=FALSE}
+library(data.table)
+library(dplyr)
+
+DIR <- "/mnt/storage/tantingting/scmut/vcf/2_melanoma_scRNA/scallele"
+
+in_long <- file.path(DIR,"scAllele_all_samples_cell_snv_long.tsv")
+in_count <- file.path(DIR,"scAllele_all_samples_cell_variant_count.tsv")
+
+out_long <- file.path(DIR,"scAllele_all_samples_cell_snv_long_min2cells.tsv")
+out_count <- file.path(DIR,"scAllele_all_samples_cell_variant_count_min2cells.tsv")
+
+long <- fread(in_long) %>%
+  distinct(tool,sample,cell,snv)
+
+cell_all <- fread(in_count) %>%
+  select(sample,cell,cell_id) %>%
+  distinct(sample,cell,.keep_all=TRUE)
+
+snv_keep <- long %>%
+  group_by(sample,snv) %>%
+  summarise(n_cells=n_distinct(cell),.groups="drop") %>%
+  filter(n_cells >= 2)
+
+long_filt <- long %>%
+  inner_join(snv_keep[,c("sample","snv")],by=c("sample","snv"))
+
+count_filt_tmp <- long_filt %>%
+  group_by(sample,cell) %>%
+  summarise(n_variants=n_distinct(snv),.groups="drop")
+
+count_filt <- cell_all %>%
+  left_join(count_filt_tmp,by=c("sample","cell")) %>%
+  mutate(
+    n_variants=ifelse(is.na(n_variants),0L,as.integer(n_variants)),
+    cell_id=paste0(sample,"_",cell)
+  ) %>%
+  select(sample,cell,n_variants,cell_id)
+
+fwrite(long_filt,out_long,sep="\t")
+fwrite(count_filt,out_count,sep="\t")
+```
+
+</details>
+  
+<details>
+<summary>Smart-seq2</summary>
+```{bash,eval=FALSE}
+export PATH=/home/tantingting/scmut/tools:$PATH
+dataset="$1"
+batch_file="$2"
+
+ref_genome="/home/tantingting/scmut/ref/bwa_ref/genome.fa"
+bam_base="/mnt/storage/tantingting/scmut_smart/bam/${dataset}"
+out_base="/mnt/storage/tantingting/scmut_smart/vcf/${dataset}/scallele"
+
+mkdir -p "$out_base"
+
+while read -r sample; do
+    [[ -z "$sample" || "$sample" =~ ^# ]] && continue
+
+    bam="${bam_base}/md_bam/${sample}_sortmd.bam"
+    out_prefix="${out_base}/${sample}"
+
+    echo "========== ${dataset} | ${sample} =========="
+
+    if [[ ! -f "$bam" ]]; then
+        echo "[ERROR] BAM not found: $bam"
+        continue
+    fi
+	
+	bai="${bam%.bam}.bai"
+	if [[ -f "$bai" && ! -e "${bam}.bai" ]]; then
+		ln -s "$bai" "${bam}.bai" ## Create a symbolic link
+	fi
+
+    if [[ -f "${out_prefix}.vcf" || -f "${out_prefix}.vcf.gz" ]]; then
+        echo "[SKIP] ${sample}"
+        continue
+    fi
+
+    echo "[CALL] ${sample}"
+
+    memusg -t scAllele \
+        --AB 0.05 \
+        --DP 10 \
+        --min-map_quality 20 \
+        -b "$bam" \
+        -g "$ref_genome" \
+        -o "$out_prefix" \
+        -n 16
+
+    if [[ $? -ne 0 ]]; then
+        echo "[FAILED] ${sample}"
+        continue
+    fi
+
+    echo "[DONE] ${sample}"
+    echo
+
+done < "$batch_file"
+```
